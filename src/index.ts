@@ -2,3 +2,7 @@
 export { FoxbridgeError, type FoxbridgeErrorCode } from "./errors.js";
 export { FrameReader, LIMITS, encodeFrame } from "./frame.js";
 export { EXTENSION_ID, HOST_NAME, hostManifest, install, manifestDir, status, uninstall, type HostManifest, type InstallOptions } from "./manifest.js";
+export { DEFAULT_APPROVAL_SECONDS, DEFAULT_TIMEOUT_MS, MAX_APPROVAL_SECONDS, MESSAGES, MIN_APPROVAL_SECONDS, TOOL_NAMES } from "./protocol.js";
+export type { AgentMessage, CallError, ExtensionToHost, HostToAgent, HostToExtension, ToolName, ToolReply } from "./protocol.js";
+export { defaultSocketPath } from "./socket.js";
+export { runHost, type HostOptions, type RunningHost } from "./host.js";
