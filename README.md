@@ -220,12 +220,12 @@ mode 0700.
 | `formatReply`, `wrapUntrusted`, `UNTRUSTED_NOTE` | How page text goes back to the agent. |
 | `FoxbridgeError` | Has a `code`. |
 
-### Demo extension
+### The extension
 
-The foxbridge extension is the demo. Its sidebar has an on switch, an agent
-indicator, the tabs to share, the approval cards, an activity log, the
-approval time, and **Stop now**. Stop now closes the native port, denies what
-waits, and stops all sharing. Turn off does the same.
+The foxbridge extension is the part that runs in Firefox. Its sidebar has an
+on switch, an agent indicator, the tabs to share, the approval cards, an
+activity log, the approval time, and **Stop now**. Stop now closes the native
+port, denies what waits, and stops all sharing. Turn off does the same.
 
 ```bash
 pnpm install
