@@ -26,25 +26,45 @@ export function encodeFrame(message: unknown, max: number): Buffer {
   return Buffer.concat([header, body]);
 }
 
-/** Collects chunks and gives back whole messages. */
+/**
+ * Collects chunks and gives back whole messages. It keeps the chunks in a
+ * list and joins them one time, when a whole frame is there (W6).
+ */
 export class FrameReader {
-  #buffer = Buffer.alloc(0);
+  #chunks: Buffer[] = [];
+  #length = 0;
   readonly #max: number;
 
   constructor(max: number) {
     this.#max = max;
   }
 
+  /** The first `n` bytes, joined. Joins the whole list only when the first chunk is too short. */
+  #head(n: number): Buffer {
+    const first = this.#chunks[0];
+    if (first && first.length >= n) return first;
+    const all = Buffer.concat(this.#chunks, this.#length);
+    this.#chunks = [all];
+    return all;
+  }
+
   /** Adds a chunk. Returns the messages it completes. Throws `too-large` or `bad-frame`. */
   push(chunk: Uint8Array): unknown[] {
-    this.#buffer = Buffer.concat([this.#buffer, chunk]);
+    if (chunk.length) {
+      this.#chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.length));
+      this.#length += chunk.length;
+    }
     const messages: unknown[] = [];
-    while (this.#buffer.length >= 4) {
-      const length = LE ? this.#buffer.readUInt32LE(0) : this.#buffer.readUInt32BE(0);
+    while (this.#length >= 4) {
+      const head = this.#head(4);
+      const length = LE ? head.readUInt32LE(0) : head.readUInt32BE(0);
       if (length > this.#max) throw new FoxbridgeError("too-large", `A frame says ${length} bytes. The limit is ${this.#max} bytes.`);
-      if (this.#buffer.length < 4 + length) break;
-      const body = this.#buffer.subarray(4, 4 + length).toString("utf8");
-      this.#buffer = this.#buffer.subarray(4 + length);
+      if (this.#length < 4 + length) break;
+      const all = this.#head(4 + length);
+      const body = all.subarray(4, 4 + length).toString("utf8");
+      const rest = all.subarray(4 + length);
+      this.#chunks = rest.length ? [rest] : [];
+      this.#length = rest.length;
       try {
         messages.push(JSON.parse(body));
       } catch {

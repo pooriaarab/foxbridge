@@ -69,6 +69,17 @@ const paths = (o: InstallOptions) => {
   return { platform, dir, manifestPath: join(dir, `${HOST_NAME}.json`), launcherDir, launcherPath, secretPath: join(launcherDir, "secret") };
 };
 
+/** npx (`_npx`), pnpm dlx (`dlx/`), yarn dlx (`xfs-…/dlx-…`) and bunx (`bunx-…`) caches. */
+const RUNNER_CACHE = /[\\/](_npx|dlx(-[^\\/]*)?)[\\/]|[\\/]bunx-[^\\/]*[\\/]/;
+
+/** The Node binary and the CLI file that a launcher runs (I9). */
+function launcherTargets(text: string): string[] {
+  const posix = text.match(/^exec ('(?:[^']|'\\'')*') ('(?:[^']|'\\'')*') host/m);
+  if (posix) return [posix[1], posix[2]].map((q) => (q ?? "").slice(1, -1).replaceAll(`'\\''`, "'"));
+  const windows = text.match(/^"([^"]*)" "([^"]*)" host/m);
+  return windows ? [windows[1] ?? "", windows[2] ?? ""] : [];
+}
+
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 const run = (command: string) => (args: string[]) =>
@@ -81,8 +92,8 @@ export async function install(o: InstallOptions = {}): Promise<{ manifestPath: s
   const nodePath = o.nodePath ?? process.execPath;
   const cliPath = o.cliPath ?? fileURLToPath(new URL("./cli.js", import.meta.url));
   const warnings: string[] = [];
-  if (/[\\/]_npx[\\/]/.test(cliPath)) {
-    warnings.push(`The CLI runs from an npx cache (${cliPath}). npm can delete that folder, and then Firefox cannot start the host. Run "npm i -g foxbridge", then "foxbridge install".`);
+  if (RUNNER_CACHE.test(cliPath)) {
+    warnings.push(`The CLI runs from a package runner cache (${cliPath}), as with npx, pnpm dlx, yarn dlx or bunx. The runner can delete that folder, and then Firefox cannot start the host. Run "npm i -g foxbridge", then "foxbridge install".`);
   }
   await mkdir(launcherDir, { recursive: true, mode: 0o700 });
   await mkdir(dir, { recursive: true });
@@ -138,5 +149,10 @@ export async function status(o: InstallOptions = {}): Promise<{ ok: boolean; man
   if (ids.length !== 1 || ids[0] !== EXTENSION_ID) problems.push(`allowed_extensions is ${JSON.stringify(ids)}. Firefox lets only those extensions connect, and foxbridge is "${EXTENSION_ID}".`);
   const launcher = typeof manifest.path === "string" ? await stat(manifest.path).catch(() => null) : null;
   if (!launcher) problems.push(`The manifest points to ${String(manifest.path)}, and that file does not exist. Run "foxbridge install".`);
+  else {
+    const targets = launcherTargets(await readFile(String(manifest.path), "utf8"));
+    if (targets.length !== 2) problems.push(`${String(manifest.path)} is not a foxbridge launcher. Run "foxbridge install".`);
+    for (const file of targets) if (!(await stat(file).catch(() => null))) problems.push(`The launcher runs ${file}, and that file does not exist. Run "foxbridge install" again.`);
+  }
   return { ok: problems.length === 0, manifestPath, problems };
 }
