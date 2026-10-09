@@ -62,12 +62,15 @@ transcripts. Full rule: pooriaarab/agents-private `rules/fleet-claim.md`.
 ## Layout
 
 ```text
-src/              the library source, built to dist/ by tsc
-tests/            tests for the failure modes in docs/failure-modes.md
-docs/failure-modes.md  every way the code can fail, written before the code
-.github/          CI, release, PR and issue standards
-extension/        the demo extension that shows this repo working in Firefox
-scripts/build-ext.mjs  bundles extension/ into dist-ext/ with esbuild
+src/frame.ts      length-prefixed JSON frames and their limits
+src/manifest.ts   the native messaging host manifest and launcher (install, status)
+src/host.ts       the native messaging host: Firefox on stdio, agents on a local socket
+src/client.ts     connectBridge, the MCP side of the socket
+src/mcp.ts        the MCP server and its six tools
+src/cli.ts        the foxbridge command
+src/protocol.ts   message types and limits; the extension bundles it too
+tests/            isolated tests for the failure modes in docs/failure-modes.md
+extension/        the foxbridge extension: background, sidebar
 e2e/run.mjs       the Firefox E2E test; writes artifacts/e2e-<date>.json
 ```
 
@@ -75,11 +78,13 @@ e2e/run.mjs       the Firefox E2E test; writes artifacts/e2e-<date>.json
 
 ```bash
 pnpm install
-pnpm ci:local   # lint + typecheck + test + build; run before every hand-off
-pnpm build:ext  # extension/ -> dist-ext/; fails if the manifest and package.json versions differ
-pnpm lint:ext   # web-ext lint on dist-ext/ (part of ci:local)
-pnpm e2e        # Firefox E2E; set FIREFOX if Firefox is not in the usual place
+pnpm ci:local   # lint + typecheck + test + build + extension build and lint
+pnpm e2e        # Firefox E2E; installs the host manifest for your user, then puts back what was there
+node dist/cli.js status   # what Firefox finds
 ```
+
+The E2E test needs Firefox outside the Claude Code Bash sandbox. It writes the
+real per-user host manifest, so do not run two E2E runs at the same time.
 
 ## Testing
 
