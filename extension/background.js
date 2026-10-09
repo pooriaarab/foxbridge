@@ -32,6 +32,8 @@ let port = null;
 const packs = new Map();
 const hostGrants = new Map();
 const calls = new Map();
+/** tabId -> the end of the chain of calls for that tab (C11). */
+const tabChains = new Map();
 const { gate, host } = createFoxgate({ tools: { ...toolSpecs(browserTools({ tabId: () => 0 })), open_url: "read" } });
 
 /** Runs a tool function that may return a value or a promise, as a promise. */
@@ -204,12 +206,34 @@ async function runCall(callId, tool, args, signal) {
   return { ok: out.ok, summary: out.summary, ...(out.untrusted ? { untrusted: out.untrusted } : {}) };
 }
 
+/** Runs `work` after every earlier call for the same tab has ended. */
+function inTabOrder(tabId, work) {
+  const run = (tabChains.get(tabId) ?? Promise.resolve()).then(work);
+  const tail = run.catch(() => undefined);
+  tabChains.set(tabId, tail);
+  void tail.then(() => tabChains.get(tabId) === tail && tabChains.delete(tabId));
+  return run;
+}
+
+/** C11: calls for one tab run one at a time, and a snapshot never runs while an approval for its tab waits. */
+function ordered(id, tool, args, signal) {
+  const tabId = TAB_TOOLS[tool] && isObject(args) && Number.isInteger(args.tabId) ? args.tabId : undefined;
+  if (tabId === undefined) return runCall(id, tool, args, signal);
+  if (tool === "snapshot" && [...state.pending.values()].some((p) => p.tabId === tabId)) {
+    return Promise.reject(refuse("tab-busy", `An approval for tab ${tabId} waits in the foxbridge sidebar. Call snapshot again after the user answers.`));
+  }
+  return inTabOrder(tabId, () => {
+    if (signal.aborted) throw refuse("approval-cancelled", "The agent cancelled this call before it ran. Nothing ran.");
+    return runCall(id, tool, args, signal);
+  });
+}
+
 async function handleCall(p, { id, tool, args }) {
   const controller = new AbortController();
   calls.set(id, controller);
   let reply;
   try {
-    reply = { type: "reply", id, ok: true, result: await runCall(id, tool, args, controller.signal) };
+    reply = { type: "reply", id, ok: true, result: await ordered(id, tool, args, controller.signal) };
   } catch (error) {
     const code = error?.code ?? "error";
     reply = { type: "reply", id, ok: false, error: { code, message: error?.message ?? String(error) } };

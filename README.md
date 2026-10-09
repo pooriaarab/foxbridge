@@ -144,6 +144,10 @@ byte order, then that many bytes of UTF-8 JSON.
 
 - The MCP server gives each call a random id. The host passes only answers
   for ids that wait, one agent at a time.
+- The host sends one call for a tab at a time, in order. A `snapshot` sent
+  while an `act` waits for its approval answers after the approval. The
+  extension keeps the same order itself, and refuses a `snapshot` with
+  `tab-busy` while an approval for that tab waits.
 - A call over 1 MB fails with `too-large` before Firefox sees it.
 - A call waits at most 180 s (`FOXBRIDGE_TIMEOUT_MS`). Then the MCP server
   sends `cancel`, and the extension drops the approval.
@@ -169,7 +173,7 @@ Every failure mode has a test or an E2E check: see
 A refusal is an MCP result with `isError: true` and a code:
 `bridge-off`, `busy`, `host-gone`, `timeout`, `too-large`, `not-shared`,
 `bad-args`, `denied`, `approval-denied`, `approval-timeout`,
-`approval-cancelled` or `unknown-tool`.
+`approval-cancelled`, `tab-busy` or `unknown-tool`.
 
 ### CLI
 

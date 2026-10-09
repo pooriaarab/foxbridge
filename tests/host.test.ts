@@ -5,7 +5,7 @@ import { connect } from "node:net";
 import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LIMITS, defaultSocketPath, runHost } from "../src/index.js";
-import { fakeFirefox, paths, raw, start, until } from "./helpers.js";
+import { fakeFirefox, paths, raw, sleep, start, until } from "./helpers.js";
 
 describe("host", () => {
   it("W5: tells the extension it is ready, and writes nothing but frames to stdout", async () => {
@@ -125,6 +125,51 @@ describe("host", () => {
     await until(() => (client.seen.filter((m) => m.type === "reply").length === 3 ? true : undefined));
     for (const reply of client.seen.filter((m) => m.type === "reply")) expect(reply).toMatchObject({ ok: false, error: { code: "bad-request" } });
     expect(ext.calls()).toHaveLength(1);
+    client.socket.destroy();
+  });
+});
+
+describe("per-tab order", () => {
+  it("H10: sends one call for a tab at a time, in order; other tabs and tab-less calls do not wait", async () => {
+    const { ext } = await start();
+    const client = await raw();
+    client.send({ type: "call", id: "a", tool: "act", args: { tabId: 1, controlId: "0:1", op: "type", value: "x" } });
+    client.send({ type: "call", id: "b", tool: "snapshot", args: { tabId: 1 } });
+    client.send({ type: "call", id: "c", tool: "list_tabs", args: {} });
+    client.send({ type: "call", id: "d", tool: "snapshot", args: { tabId: 2 } });
+    await until(() => (ext.calls().length === 3 ? true : undefined));
+    await sleep(50);
+    expect(ext.calls().map((m) => m.id)).toEqual(["a", "c", "d"]);
+    ext.send({ type: "reply", id: "a", ok: true, result: "acted" });
+    expect(await ext.nextCall(3)).toMatchObject({ id: "b" });
+    expect(await client.reply("a")).toMatchObject({ ok: true, result: "acted" });
+    client.socket.destroy();
+  });
+
+  it("H10: a cancel drops a queued call, and an error answer frees the tab", async () => {
+    const { ext } = await start();
+    const client = await raw();
+    client.send({ type: "call", id: "a", tool: "act", args: { tabId: 1 } });
+    client.send({ type: "call", id: "b", tool: "snapshot", args: { tabId: 1 } });
+    client.send({ type: "call", id: "c", tool: "click", args: { tabId: 1 } });
+    await ext.nextCall();
+    client.send({ type: "cancel", id: "b" });
+    await sleep(20);
+    ext.send({ type: "reply", id: "a", ok: false, error: { code: "approval-denied", message: "no" } });
+    expect(await ext.nextCall(1)).toMatchObject({ id: "c" });
+    expect(ext.calls().map((m) => m.id)).toEqual(["a", "c"]);
+    client.socket.destroy();
+  });
+
+  it("H10: a cancel of the call in flight frees the tab", async () => {
+    const { ext } = await start();
+    const client = await raw();
+    client.send({ type: "call", id: "a", tool: "act", args: { tabId: 1 } });
+    client.send({ type: "call", id: "b", tool: "snapshot", args: { tabId: 1 } });
+    await ext.nextCall();
+    client.send({ type: "cancel", id: "a" });
+    expect(await ext.nextCall(1)).toMatchObject({ id: "b" });
+    expect(ext.seen.some((m) => m.type === "cancel" && m.id === "a")).toBe(true);
     client.socket.destroy();
   });
 });
