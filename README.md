@@ -36,9 +36,10 @@ Then do these steps one time:
    foxbridge install
    ```
 
-2. Add the extension to Firefox. Use the `.xpi` file from a
-   [GitHub release](https://github.com/pooriaarab/foxbridge/releases), or
-   build it with `pnpm build:ext` and load `dist-ext/manifest.json` from
+2. Add the extension to Firefox. Install from AMO:
+   [addons.mozilla.org/firefox/addon/foxbridge-mcp](https://addons.mozilla.org/firefox/addon/foxbridge-mcp/)
+   (pending AMO review; the link works after approval). You can also build
+   it with `pnpm build:ext` and load `dist-ext/manifest.json` from
    `about:debugging`.
 3. Register the MCP server with your agent. For Claude Code:
 
@@ -219,12 +220,12 @@ mode 0700.
 | `formatReply`, `wrapUntrusted`, `UNTRUSTED_NOTE` | How page text goes back to the agent. |
 | `FoxbridgeError` | Has a `code`. |
 
-### Demo extension
+### The extension
 
-The foxbridge extension is the demo. Its sidebar has an on switch, an agent
-indicator, the tabs to share, the approval cards, an activity log, the
-approval time, and **Stop now**. Stop now closes the native port, denies what
-waits, and stops all sharing. Turn off does the same.
+The foxbridge extension is the part that runs in Firefox. Its sidebar has an
+on switch, an agent indicator, the tabs to share, the approval cards, an
+activity log, the approval time, and **Stop now**. Stop now closes the native
+port, denies what waits, and stops all sharing. Turn off does the same.
 
 ```bash
 pnpm install

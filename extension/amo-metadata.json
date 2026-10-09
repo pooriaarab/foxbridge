@@ -1,0 +1,21 @@
+{
+  "default_locale": "en-US",
+  "slug": "foxbridge-mcp",
+  "name": { "en-US": "foxbridge — share tabs with your coding agent" },
+  "summary": {
+    "en-US": "Let an outside AI agent, such as Claude Code or Codex, use only the tabs that you share, through MCP. The agent can read a shared tab. Each click or form entry waits for your approval in the sidebar."
+  },
+  "description": {
+    "en-US": "foxbridge connects an AI agent that runs on your computer, for example Claude Code or Codex, to the browser you already use. The agent talks to foxbridge through MCP (Model Context Protocol).\n\n**Who it is for:** developers who use a coding agent and want it to work in a logged-in tab without getting their cookies or passwords.\n\n**What it does**\n\n- You turn on the bridge in the sidebar and tick Share next to a tab. The agent sees only shared tabs.\n- The agent can read the controls and the text of a shared tab with no approval.\n- Each change (type, click, select, a foxpaw task, open a new tab) waits for your approval. The approval card shows the exact control and the exact action.\n- Stop now closes the bridge, denies what waits and stops all sharing.\n\n**Requirements:** this add-on needs the foxbridge native host on your computer. Install it with `npm i -g foxbridge` and then run `foxbridge install`. Without the host, the add-on cannot do anything.\n\n**What leaves the browser, and when**\n\n- Only while the bridge is on: the address, the title, the controls and the text of each shared tab go to the foxbridge host on your computer, over Firefox native messaging. The host passes them to the agent that you connected.\n- Your agent can send that data to its own model provider. That provider's privacy policy applies.\n- foxbridge never sends cookies or passwords. It has no server and sends nothing to its authors.\n\n**Permissions**\n\n- Native messaging: talk to the foxbridge host on your computer.\n- Access to all websites, scripting and tabs: read and act on the tabs that you share.\n- Storage: the approval time setting.\n\nThe source code is MIT licensed."
+  },
+  "categories": { "firefox": ["web-development"] },
+  "homepage": { "en-US": "https://github.com/pooriaarab/foxbridge" },
+  "support_url": { "en-US": "https://github.com/pooriaarab/foxbridge/issues" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/*.js with the fox npm packages; the other files are copied unmodified. To try it: run `npm i -g foxbridge` and `foxbridge install` (writes the native messaging host manifest for foxbridge@pooriaarab), open the sidebar, click Turn on, and tick Share on a tab. Then connect an MCP client with `foxbridge mcp` (for example `claude mcp add foxbridge -- foxbridge mcp`), or run `pnpm e2e` in the source tree, which drives a real MCP client against Firefox. No account is needed."
+  },
+  "privacy_policy": {
+    "en-US": "foxbridge has no server. It sends nothing to its authors and has no analytics.\n\nWhile you turn the bridge on, foxbridge sends the address, the title, the controls and the text of each tab that you share to the foxbridge host program on your computer, over Firefox native messaging. The host passes this data to the AI agent that you connected through MCP, for example Claude Code or Codex. That agent can send the data to its own model provider, and the provider's privacy policy applies.\n\nfoxbridge sends nothing from tabs that you do not share. It never sends cookies or passwords. Turn off, or a Firefox restart, stops all sharing. The approval time setting stays in this browser."
+  }
+}
