@@ -7,12 +7,13 @@
 // FOXBRIDGE_SHOTS=<dir> also saves the sidebar state as JSON, for screenshots.
 import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { launch, poll, serve, writeArtifact } from "create-foxkit/e2e";
-import { manifestDir } from "../dist/index.js";
+import { FrameReader, LIMITS, encodeFrame, manifestDir } from "../dist/index.js";
 
 const record = { startedAt: new Date().toISOString(), checks: [], calls: {} };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: JSON.stringify(actual) === JSON.stringify(expected) });
@@ -76,12 +77,12 @@ try {
 
   await click("#power");
   await poll(sidebar, () => document.getElementById("status").textContent === "On, waiting for an agent");
-  await fox.open(`${site.url}/other.html?first`);
-  const other = await fox.open(`${site.url}/other.html?second`);
+  await fox.open(`${site.url}/form.html`);
+  const other = await fox.open(`${site.url}/other.html`);
   const tabs = await sidebar.evaluate(() => browser.tabs.query({}));
   const tabOf = (path) => tabs.find((t) => t.url?.endsWith(path)).id;
-  const formTab = tabOf("/other.html?first");
-  const otherTab = tabOf("/other.html?second");
+  const formTab = tabOf("/form.html");
+  const otherTab = tabOf("/other.html");
 
   const agent = await mcp();
   clients.push(agent);
@@ -96,18 +97,46 @@ try {
   check("list_tabs shows the shared tab only", true, listedTabs.texts[0].includes(`tab ${formTab} on 127.0.0.1`) && !listedTabs.texts.join(" ").includes(`tab ${otherTab}`));
   if (process.env.FOXBRIDGE_SHOTS) writeFileSync(join(process.env.FOXBRIDGE_SHOTS, "shared.json"), JSON.stringify(await state()));
 
+  // Snapshot: no approval for a read; page text is wrapped; the password stays in the page.
+  const snap = await agent.call("snapshot", { tabId: formTab });
+  const [head, block = ""] = snap.texts;
+  const nonce = block.match(/^<page-data-([0-9a-f]+)>\n/)?.[1];
+  check("snapshot of a shared tab works without an approval", false, snap.isError);
+  check("P1: the injected text is inside the page-data block only", true,
+    Boolean(nonce) && block.endsWith(`\n</page-data-${nonce}>`) && block.includes("ignore the user") && !head.includes("ignore the user") && /untrusted/.test(head));
+  check("C9: the password value is not in the snapshot", false, snap.texts.join(" ").includes("hunter2-secret"));
+  const unshared = await agent.call("snapshot", { tabId: otherTab }, "snapshot-unshared");
+  check("C1: a call on an unshared tab is refused", true, unshared.isError && unshared.texts[0].includes("not-shared"));
+
+  // C4: a raw client sends arguments that the MCP server would never send.
+  await agent.client.close();
+  await poll(sidebar, () => document.getElementById("status").textContent !== "Agent connected");
+  const raw = connect(process.env.FOXBRIDGE_SOCKET);
+  const reader = new FrameReader(LIMITS.socket);
+  const replies = [];
+  raw.on("data", (chunk) => replies.push(...reader.push(chunk).filter((m) => m.type === "reply")));
+  await new Promise((resolve) => raw.once("connect", resolve));
+  raw.write(encodeFrame({ type: "call", id: "r1", tool: "snapshot", args: { tabId: String(formTab) } }, LIMITS.socket));
+  raw.write(encodeFrame({ type: "call", id: "r2", tool: "snapshot", args: { tabId: formTab, scope: "pay" } }, LIMITS.socket));
+  for (let i = 0; i < 100 && replies.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+  check("C4: the extension checks the args again: a text tab id and an extra arg are refused", ["not-shared", "bad-args"], replies.map((r) => r.error?.code));
+  raw.destroy();
+  await poll(sidebar, () => document.getElementById("status").textContent !== "Agent connected");
+  const again = await mcp();
+  clients.push(again);
+
   // C2: a shared tab moves to another site.
   await shareTab(otherTab);
   await other.goto(`http://localhost:${port}/other.html`);
-  const moved = await agent.call("list_tabs", {}, "list_tabs-moved");
-  check("C2: a shared tab that moved to another site is no longer shared", true, !moved.texts.join(" ").includes(`tab ${otherTab}`) && moved.texts[0].includes(`tab ${formTab}`));
+  const moved = await again.call("snapshot", { tabId: otherTab }, "snapshot-moved");
+  check("C2: a shared tab that moved to another site is no longer shared", true, moved.isError && moved.texts[0].includes("not-shared"));
 
   // C3: the kill switch.
   await click("#stop");
-  const after = await agent.call("list_tabs", {}, "after-kill");
+  const after = await again.call("list_tabs", {}, "after-kill");
   check("C3: after the kill switch, calls get host-gone or bridge-off", true, after.isError && /host-gone|bridge-off/.test(after.texts[0]));
-  const again = await agent.call("list_tabs", {}, "after-kill-again");
-  check("after the kill switch, the next call gets bridge-off", true, again.isError && again.texts[0].includes("bridge-off"));
+  const next = await again.call("list_tabs", {}, "after-kill-again");
+  check("after the kill switch, the next call gets bridge-off", true, next.isError && next.texts[0].includes("bridge-off"));
   const end = await state();
   check("after the kill switch, the bridge is off and no tab is shared", { on: false, shared: 0 }, { on: end.on, shared: end.tabs.filter((t) => t.shared).length });
 } catch (error) {
