@@ -14,6 +14,9 @@
   "engines": {
     "node": ">=24"
   },
+  "bin": {
+    "foxbridge": "dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -33,6 +36,10 @@
     "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors",
     "e2e": "pnpm build:ext && node e2e/run.mjs"
   },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.5"
+  },
   "devDependencies": {
     "@types/node": "^24.19.1",
     "create-foxkit": "^0.1.0",
@@ -41,9 +48,5 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
     "web-ext": "^10.7.0"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "zod": "^4.6.5"
   }
 }

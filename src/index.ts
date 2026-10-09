@@ -7,3 +7,4 @@ export type { AgentMessage, CallError, ExtensionToHost, HostToAgent, HostToExten
 export { defaultSocketPath } from "./socket.js";
 export { runHost, type HostOptions, type RunningHost } from "./host.js";
 export { connectBridge, type Bridge, type BridgeOptions } from "./client.js";
+export { UNTRUSTED_NOTE, createMcpServer, formatReply, wrapUntrusted, type McpOptions } from "./mcp.js";
