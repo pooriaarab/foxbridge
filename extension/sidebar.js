@@ -12,6 +12,9 @@ function el(tag, { dataset = {}, ...props } = {}, ...children) {
   return node;
 }
 
+/** The control that foxloop pinned for this action: only this control can run. */
+const targetText = (t) => `Only this control: ${t.role} "${t.label}" (id ${t.id}, snapshot ${t.generation})${t.submit ? ", sends its form" : ""} on ${t.url}`;
+
 function statusOf(s) {
   if (s.agent) return ["agent", "Agent connected"];
   if (s.on && s.ready) return ["on", "On, waiting for an agent"];
@@ -32,6 +35,7 @@ function render(s) {
   $("pending").replaceChildren(...(s.pending.length ? s.pending.map((p) => el("li", { className: "ask" },
     el("div", {}, el("strong", { textContent: p.tool }), p.tabId === null ? "" : ` on tab ${p.tabId}`),
     el("p", { className: "detail", textContent: p.detail }),
+    p.target ? el("p", { className: "target", textContent: targetText(p.target) }) : "",
     el("pre", { textContent: p.text }),
     el("div", { className: "row" },
       el("button", { type: "button", className: "primary", textContent: "Approve", dataset: { op: "approve", id: p.requestId } }),

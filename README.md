@@ -105,10 +105,14 @@ flowchart LR
 5. It asks foxgate. Sharing a tab adds grants for the site of that tab:
    `snapshot` needs no approval, and `act`, `click` and `run_task` always
    need one. `open_url` always needs one.
-6. For an approval, the sidebar shows the action in plain words and its exact
-   JSON. Approve gives a foxgate token for that one action. Deny, the
+6. Before the gate, foxloop's `prepare` pins the exact control: the snapshot
+   number, the control id, its frame, node, guard, role and label. For an
+   approval, the sidebar shows the action in plain words, the pinned
+   control, and the exact JSON. Approve gives a foxgate token for that one action. Deny, the
    approval time, or the kill switch runs nothing.
-7. The tool runs through foxpaw in the page. Page text goes back to the agent
+7. The tool runs through foxpaw in the page, on the pinned control only.
+   When the page changed after the approval, nothing runs and the agent
+   gets `stale`: call `snapshot` again. Page text goes back to the agent
    in its own block, inside tags with a random nonce.
 
 ```mermaid
@@ -181,7 +185,7 @@ Every failure mode has a test or an E2E check: see
 A refusal is an MCP result with `isError: true` and a code:
 `bridge-off`, `busy`, `host-gone`, `timeout`, `too-large`, `not-shared`,
 `bad-args`, `denied`, `approval-denied`, `approval-timeout`,
-`approval-cancelled`, `tab-busy`, `bad-host`, `no-secret` or `unknown-tool`.
+`approval-cancelled`, `tab-busy`, `stale`, `bad-host`, `no-secret` or `unknown-tool`.
 
 ### CLI
 
