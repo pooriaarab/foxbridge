@@ -142,6 +142,14 @@ byte order, then that many bytes of UTF-8 JSON.
 | Host to extension (stdout) | 1 MB, set by Firefox | `ready`, `agent {connected}`, `call`, `cancel`, `host-error` |
 | Extension to host (stdin) | 8 MB, set by foxbridge | `reply {id, ok, result \| error}` |
 
+- The MCP server first sends a random challenge. The host answers in
+  `hello` with an HMAC-SHA256 of it, keyed with the secret that `install`
+  wrote to `~/.foxbridge/secret` (mode 0600). The MCP server refuses a host
+  that cannot prove the secret (`bad-host`), so a program that took the
+  socket path first sees no call and cannot forge an answer. On Windows,
+  libuv makes the first pipe instance with `FILE_FLAG_FIRST_PIPE_INSTANCE`,
+  so the real host fails with `socket-busy` instead of sharing a name that
+  another program holds.
 - The MCP server gives each call a random id. The host passes only answers
   for ids that wait, one agent at a time.
 - The host sends one call for a tab at a time, in order. A `snapshot` sent
@@ -173,13 +181,13 @@ Every failure mode has a test or an E2E check: see
 A refusal is an MCP result with `isError: true` and a code:
 `bridge-off`, `busy`, `host-gone`, `timeout`, `too-large`, `not-shared`,
 `bad-args`, `denied`, `approval-denied`, `approval-timeout`,
-`approval-cancelled`, `tab-busy` or `unknown-tool`.
+`approval-cancelled`, `tab-busy`, `bad-host`, `no-secret` or `unknown-tool`.
 
 ### CLI
 
 | Command | What it does |
 |---|---|
-| `foxbridge install [--extension-id <id>]` | Writes the launcher `~/.foxbridge/foxbridge-host` and the host manifest. On Windows, it also writes `HKCU\Software\Mozilla\NativeMessagingHosts\foxbridge`. |
+| `foxbridge install [--extension-id <id>]` | Writes the launcher `~/.foxbridge/foxbridge-host`, the secret `~/.foxbridge/secret` and the host manifest. On Windows, it also writes `HKCU\Software\Mozilla\NativeMessagingHosts\foxbridge`. |
 | `foxbridge uninstall` | Removes them. |
 | `foxbridge status` | Checks the manifest, the extension id and the launcher. Exits 1 with the problems. |
 | `foxbridge mcp` | Runs the MCP server on stdio. |
@@ -244,8 +252,9 @@ port was open, and it stayed loaded for 8 s while the native port was open.
 - The approval card names a control by the label that the page gives it. A
   hostile page can give a button a false label. Check the site before you
   approve.
-- Any program that runs as your user can connect to the socket while the
-  bridge is on. There is no pairing code. The sidebar shows **Agent
+- Any program that runs as your user can read the secret and connect to the
+  socket while the bridge is on. The secret keeps out other users, not your
+  own programs. The sidebar shows **Agent
   connected**, and only one agent can connect at a time.
 - One approval for `run_task` covers the whole foxpaw run, and the run can
   send a form.
@@ -258,8 +267,8 @@ port was open, and it stayed loaded for 8 s while the native port was open.
 - The 8 s idle test is a measurement on one Firefox version. Firefox does not
   document that an open native port keeps an event page loaded.
 - foxpaw sends in-page events with `isTrusted: false`. Some sites ignore them.
-- Windows support (the registry key, the `.cmd` launcher and the named pipe)
-  is written but not tested on Windows.
+- Windows support (the registry key, the `.cmd` launcher, `icacls` on the
+  secret and the named pipe) is written but not tested on Windows.
 - `npx foxbridge install` points the manifest into an npx cache that npm can
   delete. Install the package globally first.
 

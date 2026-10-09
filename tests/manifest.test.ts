@@ -65,7 +65,7 @@ describe("install", () => {
 
   it("I7: on Windows, writes the registry key that points to the manifest", async () => {
     const calls: string[][] = [];
-    const result = await install({ home, platform: "win32", nodePath: "C:\\node\\node.exe", cliPath: "C:\\fb\\dist\\cli.js", reg: async (args) => void calls.push(args) });
+    const result = await install({ home, platform: "win32", nodePath: "C:\\node\\node.exe", cliPath: "C:\\fb\\dist\\cli.js", reg: async (args) => void calls.push(args), icacls: async () => undefined });
     expect(result.launcherPath.endsWith(".cmd")).toBe(true);
     expect(calls).toEqual([["add", "HKCU\\Software\\Mozilla\\NativeMessagingHosts\\foxbridge", "/ve", "/t", "REG_SZ", "/d", result.manifestPath, "/f"]]);
     const removed: string[][] = [];
@@ -104,10 +104,10 @@ describe("status", () => {
 });
 
 describe("uninstall", () => {
-  it("removes the manifest and the launcher", async () => {
-    const { manifestPath, launcherPath } = await install({ home, ...posix });
+  it("removes the manifest, the launcher and the secret", async () => {
+    const { manifestPath, launcherPath, secretPath } = await install({ home, ...posix });
     const { removed } = await uninstall({ home, platform: "linux" });
-    expect(removed.toSorted()).toEqual([launcherPath, manifestPath].toSorted());
+    expect(removed.toSorted()).toEqual([launcherPath, manifestPath, secretPath].toSorted());
     expect(existsSync(manifestPath) || existsSync(launcherPath)).toBe(false);
   });
 

@@ -5,13 +5,18 @@ import { connect } from "node:net";
 import { FoxbridgeError } from "./errors.js";
 import { FrameReader, LIMITS, encodeFrame } from "./frame.js";
 import { DEFAULT_TIMEOUT_MS, MESSAGES } from "./protocol.js";
-import { defaultSocketPath } from "./socket.js";
+import { checkProof, newChallenge, readSecret } from "./secret.js";
+import { defaultSecretPath, defaultSocketPath } from "./socket.js";
 
 export interface BridgeOptions {
   /** Default: defaultSocketPath(). */
   socketPath?: string;
   /** How long one call waits. Default: 180 s. */
   timeoutMs?: number;
+  /** The secret file from `install`. Default: defaultSecretPath(). */
+  secretPath?: string;
+  /** How long the host has to prove the secret. Default: 5 s. */
+  helloTimeoutMs?: number;
 }
 
 export interface Bridge {
@@ -31,6 +36,8 @@ interface Waiting {
 export async function connectBridge(o: BridgeOptions = {}): Promise<Bridge> {
   const socketPath = o.socketPath ?? defaultSocketPath();
   const timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const secret = await readSecret(o.secretPath ?? defaultSecretPath());
+  const challenge = newChallenge();
   const socket = connect(socketPath);
   const waiting = new Map<string, Waiting>();
   const reader = new FrameReader(LIMITS.socket);
@@ -40,6 +47,8 @@ export async function connectBridge(o: BridgeOptions = {}): Promise<Bridge> {
 
   socket.once("error", () => greet.reject(new FoxbridgeError("bridge-off", MESSAGES.bridgeOff)));
   socket.on("error", () => undefined);
+  socket.once("connect", () => socket.write(encodeFrame({ type: "challenge", nonce: challenge }, LIMITS.socket)));
+  const helloTimer = setTimeout(() => greet.reject(new FoxbridgeError("bad-host", MESSAGES.badHost)), o.helloTimeoutMs ?? 5000);
   socket.on("close", () => {
     closed = true;
     greet.reject(new FoxbridgeError("host-gone", MESSAGES.hostGone));
@@ -59,7 +68,10 @@ export async function connectBridge(o: BridgeOptions = {}): Promise<Bridge> {
     }
     for (const raw of messages) {
       const m = raw as { type?: string; id?: string; ok?: boolean; result?: unknown; code?: string; message?: string; error?: { code?: string; message?: string } };
-      if (m.type === "hello") greet.resolve();
+      if (m.type === "hello") {
+        if (checkProof(secret, challenge, (m as { proof?: unknown }).proof)) greet.resolve();
+        else greet.reject(new FoxbridgeError("bad-host", MESSAGES.badHost));
+      }
       else if (m.type === "refused") greet.reject(new FoxbridgeError(m.code ?? "busy", m.message ?? MESSAGES.busy));
       else if (m.type === "reply" && typeof m.id === "string") {
         const w = waiting.get(m.id);
@@ -77,6 +89,8 @@ export async function connectBridge(o: BridgeOptions = {}): Promise<Bridge> {
   } catch (error) {
     socket.destroy();
     throw error;
+  } finally {
+    clearTimeout(helloTimer);
   }
 
   return {
