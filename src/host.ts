@@ -65,6 +65,10 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
   const log = o.log ?? ((line: string) => process.stderr.write(`foxbridge host: ${line}\n`));
   const sockets = new Set<Socket>();
   const pending = new Set<string>();
+  // H10: one call for a tab at a time. tabId -> the id in flight, and the
+  // calls that wait for their tab, in the order the agent sent them.
+  const busyTabs = new Map<number, string>();
+  const queued: { id: string; tabId: number; frame: Buffer }[] = [];
   let agent: Socket | undefined;
   let listening = false;
   let stopping: Promise<void> | undefined;
@@ -84,11 +88,30 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
       finished();
     })());
 
+  /** The call `id` ended: send the next call that waits for its tab. */
+  const release = (id: string) => {
+    for (const [tabId, current] of busyTabs) {
+      if (current !== id) continue;
+      busyTabs.delete(tabId);
+      const at = queued.findIndex((q) => q.tabId === tabId);
+      if (at < 0) continue;
+      const [next] = queued.splice(at, 1);
+      if (!next) continue;
+      busyTabs.set(tabId, next.id);
+      o.output.write(next.frame);
+    }
+  };
+
   const onAgentMessage = (socket: Socket, message: unknown) => {
     if (!isObject(message)) return;
     const { type, id, tool, args } = message;
     if (type === "cancel" && typeof id === "string" && pending.delete(id)) {
-      toExtension({ type: "cancel", id });
+      const at = queued.findIndex((q) => q.id === id);
+      if (at >= 0) queued.splice(at, 1);
+      else {
+        toExtension({ type: "cancel", id });
+        release(id);
+      }
       return;
     }
     if (type !== "call") return;
@@ -105,7 +128,15 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
       return refuse(socket, id, "too-large", `${(error as Error).message} Firefox stops the host for a message over 1 MB.`);
     }
     pending.add(id);
-    o.output.write(frame);
+    const tabId = Number.isInteger(args.tabId) ? (args.tabId as number) : undefined;
+    if (tabId === undefined) {
+      o.output.write(frame);
+    } else if (busyTabs.has(tabId)) {
+      queued.push({ id, tabId, frame });
+    } else {
+      busyTabs.set(tabId, id);
+      o.output.write(frame);
+    }
   };
 
   server.on("connection", (socket) => {
@@ -116,6 +147,8 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
       if (agent !== socket) return;
       agent = undefined;
       pending.clear();
+      busyTabs.clear();
+      queued.length = 0;
       if (!stopping) toExtension({ type: "agent", connected: false });
     });
     if (agent) {
@@ -148,6 +181,9 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
     }
     for (const message of messages) {
       if (!isObject(message) || message.type !== "reply" || typeof message.id !== "string" || !pending.delete(message.id) || !agent) continue;
+      const waiting = queued.findIndex((q) => q.id === message.id);
+      if (waiting >= 0) queued.splice(waiting, 1);
+      release(message.id);
       const error = isObject(message.error) ? { code: String(message.error.code ?? "error"), message: String(message.error.message ?? "") } : undefined;
       toAgent(agent, { type: "reply", id: message.id, ok: message.ok === true, ...(message.ok === true ? { result: message.result } : { error: error ?? { code: "error", message: "The extension gave no reason." } }) });
     }
