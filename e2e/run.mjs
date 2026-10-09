@@ -139,7 +139,7 @@ try {
     Boolean(nonce) && block.endsWith(`\n</page-data-${nonce}>`) && block.includes("ignore the user") && !head.includes("ignore the user") && /untrusted/.test(head));
   check("C9: the password value is not in the snapshot", false, snap.texts.join(" ").includes("hunter2-secret"));
   const idOf = (label) => block.match(new RegExp(`\\[(\\d+:\\d+)\\] [a-z]+ "${label}"`))?.[1];
-  const email = idOf("Email");
+  let email = idOf("Email");
   const save = idOf("Save profile");
 
   // act with an approval through the sidebar.
@@ -166,6 +166,21 @@ try {
   await answer("approve");
   const [acted2, snap2] = [await acting2, await snapping];
   check("H10: the act runs, then the snapshot reads the page after it", true, !acted2.isError && !snap2.isError && snap2.texts[1].includes('value="sam@example.org"'));
+
+  // C12: the page replaces the field while its approval waits. The pinned control is stale, so nothing runs.
+  const pinned = agent.call("act", { tabId: formTab, controlId: email, op: "type", value: "evil@example.com" }, "act-stale");
+  const pinCard = await poll(sidebar, () => document.querySelector("li.ask .target")?.textContent, undefined, 15_000);
+  await form.evaluate(() => {
+    const old = document.getElementById("email");
+    old.replaceWith(old.cloneNode());
+  });
+  await click(`li.ask button[data-op="approve"]`);
+  const staled = await pinned;
+  check("C12: the approval card names the pinned control", true, pinCard.includes('"Email"') && pinCard.includes("snapshot"));
+  check("C12: a page change during the approval gives stale, and nothing is typed", { stale: true, value: "sam@example.org" },
+    { stale: staled.isError && staled.texts[0].includes("stale") && staled.texts[0].includes("snapshot"), value: await form.evaluate(() => document.getElementById("email").value) });
+  const resnap = await agent.call("snapshot", { tabId: formTab }, "snapshot-after-stale");
+  email = resnap.texts[1].match(/\[(\d+:\d+)\] [a-z]+ "Email"/)?.[1];
 
   const unshared = await agent.call("snapshot", { tabId: otherTab }, "snapshot-unshared");
   check("C1: a call on an unshared tab is refused", true, unshared.isError && unshared.texts[0].includes("not-shared"));
