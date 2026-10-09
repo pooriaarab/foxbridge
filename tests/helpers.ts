@@ -1,6 +1,6 @@
 // Test helpers: a host with a fake Firefox on two in-memory streams, and a
 // raw socket client. The socket is real.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,11 +10,15 @@ import { FoxbridgeError, FrameReader, LIMITS, encodeFrame, runHost, type Running
 
 export type Msg = Record<string, unknown>;
 
-export const paths = { dir: "", socket: "" };
+export const paths = { dir: "", socket: "", secret: "" };
+export const SECRET = "ab".repeat(32);
 const running: RunningHost[] = [];
 beforeEach(() => {
   paths.dir = mkdtempSync(join(tmpdir(), "fbr-"));
   paths.socket = join(paths.dir, "s", "host.sock");
+  paths.secret = join(paths.dir, "secret");
+  writeFileSync(paths.secret, SECRET, { mode: 0o600 });
+  process.env.FOXBRIDGE_SECRET_FILE = paths.secret;
 });
 afterEach(async () => {
   for (const host of running.splice(0)) await host.close();
@@ -75,6 +79,7 @@ export async function start() {
 export async function raw() {
   const socket = connect(paths.socket);
   await new Promise((resolve, reject) => socket.once("connect", resolve).once("error", reject));
+  socket.write(encodeFrame({ type: "challenge", nonce: "00".repeat(32) }, LIMITS.socket));
   const reader = new FrameReader(LIMITS.socket);
   const seen: Msg[] = [];
   let closed = false;

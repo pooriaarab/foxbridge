@@ -2,10 +2,11 @@
 // to. Firefox runs the launcher, and the launcher runs `foxbridge host`.
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FoxbridgeError } from "./errors.js";
+import { isSecret, newSecret } from "./secret.js";
 
 /** The native application name. The extension calls `connectNative("foxbridge")`. */
 export const HOST_NAME = "foxbridge";
@@ -34,6 +35,10 @@ export interface InstallOptions {
   cliPath?: string;
   /** Runs `reg` on Windows. Default: the real `reg.exe`. */
   reg?: (args: string[]) => Promise<void>;
+  /** Runs `icacls` on Windows. Default: the real `icacls.exe`. */
+  icacls?: (args: string[]) => Promise<void>;
+  /** The Windows user that keeps access to the secret. Default: the current user. */
+  username?: string;
 }
 
 /** The folder where Firefox looks for the manifest. On Windows, the registry points to it. */
@@ -61,17 +66,18 @@ const paths = (o: InstallOptions) => {
   const dir = manifestDir(platform, home);
   const launcherDir = join(home, ".foxbridge");
   const launcherPath = join(launcherDir, platform === "win32" ? "foxbridge-host.cmd" : "foxbridge-host");
-  return { platform, dir, manifestPath: join(dir, `${HOST_NAME}.json`), launcherDir, launcherPath };
+  return { platform, dir, manifestPath: join(dir, `${HOST_NAME}.json`), launcherDir, launcherPath, secretPath: join(launcherDir, "secret") };
 };
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
-const realReg = (args: string[]) =>
-  new Promise<void>((resolve, reject) => execFile("reg", args, (error) => (error ? reject(error) : resolve())));
+const run = (command: string) => (args: string[]) =>
+  new Promise<void>((resolve, reject) => execFile(command, args, (error) => (error ? reject(error) : resolve())));
+const realReg = run("reg");
 
 /** Writes the launcher and the manifest. On Windows, also the registry key. */
-export async function install(o: InstallOptions = {}): Promise<{ manifestPath: string; launcherPath: string; warnings: string[] }> {
-  const { platform, dir, manifestPath, launcherDir, launcherPath } = paths(o);
+export async function install(o: InstallOptions = {}): Promise<{ manifestPath: string; launcherPath: string; secretPath: string; warnings: string[] }> {
+  const { platform, dir, manifestPath, launcherDir, launcherPath, secretPath } = paths(o);
   const nodePath = o.nodePath ?? process.execPath;
   const cliPath = o.cliPath ?? fileURLToPath(new URL("./cli.js", import.meta.url));
   const warnings: string[] = [];
@@ -87,14 +93,19 @@ export async function install(o: InstallOptions = {}): Promise<{ manifestPath: s
   await chmod(launcherPath, 0o755);
   await writeFile(manifestPath, `${JSON.stringify(hostManifest(launcherPath, o.extensionId), null, 2)}\n`);
   if (platform === "win32") await (o.reg ?? realReg)(["add", REG_KEY, "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"]);
-  return { manifestPath, launcherPath, warnings };
+  // I8: the secret that the host proves in hello. A good secret stays, so
+  // a running host and a running MCP server keep agreeing.
+  if (!isSecret((await readFile(secretPath, "utf8").catch(() => "")).trim())) await writeFile(secretPath, newSecret(), { mode: 0o600 });
+  await chmod(secretPath, 0o600);
+  if (platform === "win32") await (o.icacls ?? run("icacls"))([secretPath, "/inheritance:r", "/grant:r", `${o.username ?? userInfo().username}:F`]);
+  return { manifestPath, launcherPath, secretPath, warnings };
 }
 
 /** Removes the manifest and the launcher. On Windows, also the registry key. */
 export async function uninstall(o: InstallOptions = {}): Promise<{ removed: string[] }> {
-  const { platform, manifestPath, launcherPath } = paths(o);
+  const { platform, manifestPath, launcherPath, secretPath } = paths(o);
   const removed: string[] = [];
-  for (const file of [manifestPath, launcherPath]) {
+  for (const file of [manifestPath, launcherPath, secretPath]) {
     if (await stat(file).catch(() => null)) {
       await rm(file);
       removed.push(file);
@@ -106,8 +117,11 @@ export async function uninstall(o: InstallOptions = {}): Promise<{ removed: stri
 
 /** Checks what Firefox will find. `problems` says what to fix. */
 export async function status(o: InstallOptions = {}): Promise<{ ok: boolean; manifestPath: string; problems: string[] }> {
-  const { manifestPath } = paths(o);
+  const { platform, manifestPath, secretPath } = paths(o);
   const problems: string[] = [];
+  const secret = await stat(secretPath).catch(() => null);
+  if (!secret || !isSecret((await readFile(secretPath, "utf8")).trim())) problems.push(`There is no good secret at ${secretPath}. Run "foxbridge install".`);
+  else if (platform !== "win32" && (secret.mode & 0o077) !== 0) problems.push(`${secretPath} can be read by other users. Run "chmod 600 ${secretPath}".`);
   const text = await readFile(manifestPath, "utf8").catch(() => null);
   if (text === null) {
     problems.push(`There is no host manifest at ${manifestPath}. Run "foxbridge install".`);

@@ -7,6 +7,11 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { FrameReader, LIMITS, encodeFrame } from "./frame.js";
 import { MESSAGES, type HostToAgent, type HostToExtension } from "./protocol.js";
+import { hostProof, readSecret } from "./secret.js";
+import { defaultSecretPath } from "./socket.js";
+
+/** How long a new client has to send its challenge. */
+const CHALLENGE_MS = 5000;
 
 export interface HostOptions {
   /** Messages from Firefox. Default in the CLI: stdin. */
@@ -14,6 +19,8 @@ export interface HostOptions {
   /** Messages to Firefox. Default in the CLI: stdout. */
   output: NodeJS.WritableStream;
   socketPath: string;
+  /** The secret file from `install`. Default: defaultSecretPath(). */
+  secretPath?: string;
   /** Default: stderr. */
   log?: (line: string) => void;
 }
@@ -64,6 +71,7 @@ const refuse = (socket: Socket, id: string, code: string, message: string) => to
 export async function runHost(o: HostOptions): Promise<RunningHost> {
   const log = o.log ?? ((line: string) => process.stderr.write(`foxbridge host: ${line}\n`));
   const sockets = new Set<Socket>();
+  const greetedSockets = new WeakSet<Socket>();
   const pending = new Set<string>();
   // H10: one call for a tab at a time. tabId -> the id in flight, and the
   // calls that wait for their tab, in the order the agent sent them.
@@ -149,19 +157,36 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
       pending.clear();
       busyTabs.clear();
       queued.length = 0;
-      if (!stopping) toExtension({ type: "agent", connected: false });
+      if (!stopping && greetedSockets.has(socket)) toExtension({ type: "agent", connected: false });
     });
     if (agent) {
       socket.end(encodeFrame({ type: "refused", code: "busy", message: MESSAGES.busy }, LIMITS.socket));
       return;
     }
     agent = socket;
-    toAgent(socket, { type: "hello", version: 1 });
-    toExtension({ type: "agent", connected: true });
+    // H11: the first message must be a challenge. The host proves the secret in hello.
+    let greeted = false;
+    const timer = setTimeout(() => !greeted && socket.destroy(), CHALLENGE_MS);
+    socket.on("close", () => clearTimeout(timer));
     const reader = new FrameReader(LIMITS.socket);
     socket.on("data", (chunk: Buffer) => {
       try {
-        for (const message of reader.push(chunk)) onAgentMessage(socket, message);
+        for (const message of reader.push(chunk)) {
+          if (greeted) {
+            onAgentMessage(socket, message);
+            continue;
+          }
+          const challenge = isObject(message) && message.type === "challenge" ? message.nonce : undefined;
+          if (typeof challenge !== "string" || !/^[0-9a-f]{32,128}$/.test(challenge)) {
+            socket.destroy();
+            return;
+          }
+          greeted = true;
+          greetedSockets.add(socket);
+          clearTimeout(timer);
+          toAgent(socket, { type: "hello", version: 1, proof: hostProof(secret, challenge) });
+          toExtension({ type: "agent", connected: true });
+        }
       } catch (error) {
         log(`dropped the agent: ${(error as Error).message}`);
         socket.destroy();
@@ -190,6 +215,17 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
   });
   o.input.on("end", () => void close());
   o.input.on("error", () => void close());
+
+  let secret: Buffer;
+  try {
+    secret = await readSecret(o.secretPath ?? defaultSecretPath());
+  } catch (error) {
+    const message = (error as Error).message;
+    log(message);
+    toExtension({ type: "host-error", code: "no-secret", message });
+    await close();
+    return { closed, close };
+  }
 
   // A folder that the host makes gets mode 0700. FOXBRIDGE_SOCKET can name
   // a shared folder such as /tmp, so the socket file itself gets 0600.

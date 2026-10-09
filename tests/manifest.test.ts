@@ -1,7 +1,7 @@
 // I1-I7 in docs/failure-modes.md: the native messaging host manifest and
 // the launcher that Firefox starts.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -65,7 +65,7 @@ describe("install", () => {
 
   it("I7: on Windows, writes the registry key that points to the manifest", async () => {
     const calls: string[][] = [];
-    const result = await install({ home, platform: "win32", nodePath: "C:\\node\\node.exe", cliPath: "C:\\fb\\dist\\cli.js", reg: async (args) => void calls.push(args) });
+    const result = await install({ home, platform: "win32", nodePath: "C:\\node\\node.exe", cliPath: "C:\\fb\\dist\\cli.js", reg: async (args) => void calls.push(args), icacls: async () => undefined });
     expect(result.launcherPath.endsWith(".cmd")).toBe(true);
     expect(calls).toEqual([["add", "HKCU\\Software\\Mozilla\\NativeMessagingHosts\\foxbridge", "/ve", "/t", "REG_SZ", "/d", result.manifestPath, "/f"]]);
     const removed: string[][] = [];
@@ -104,14 +104,42 @@ describe("status", () => {
 });
 
 describe("uninstall", () => {
-  it("removes the manifest and the launcher", async () => {
-    const { manifestPath, launcherPath } = await install({ home, ...posix });
+  it("removes the manifest, the launcher and the secret", async () => {
+    const { manifestPath, launcherPath, secretPath } = await install({ home, ...posix });
     const { removed } = await uninstall({ home, platform: "linux" });
-    expect(removed.toSorted()).toEqual([launcherPath, manifestPath].toSorted());
+    expect(removed.toSorted()).toEqual([launcherPath, manifestPath, secretPath].toSorted());
     expect(existsSync(manifestPath) || existsSync(launcherPath)).toBe(false);
   });
 
   it("I5: removes nothing and does not throw when nothing is installed", async () => {
     expect(await uninstall({ home, platform: "linux" })).toEqual({ removed: [] });
+  });
+});
+
+describe("secret", () => {
+  it("I8: install writes a 64-hex secret with mode 0600, and a second install keeps it", async () => {
+    const first = await install({ home, ...posix });
+    expect(first.secretPath).toBe(join(home, ".foxbridge", "secret"));
+    const secret = readFileSync(first.secretPath, "utf8");
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    if (process.platform !== "win32") expect(statSync(first.secretPath).mode & 0o777).toBe(0o600);
+    await install({ home, ...posix });
+    expect(readFileSync(first.secretPath, "utf8")).toBe(secret);
+  });
+
+  it("I8: uninstall removes the secret, and status names a missing or loose one", async () => {
+    const { secretPath } = await install({ home, ...posix });
+    chmodSync(secretPath, 0o644);
+    expect((await status({ home, platform: "linux" })).problems.join(" ")).toContain(secretPath);
+    rmSync(secretPath);
+    expect((await status({ home, platform: "linux" })).problems.join(" ")).toContain(secretPath);
+    await install({ home, ...posix });
+    expect((await uninstall({ home, platform: "linux" })).removed).toContain(secretPath);
+  });
+
+  it("I8: on Windows, icacls keeps only the user on the secret", async () => {
+    const calls: string[][] = [];
+    const { secretPath } = await install({ home, platform: "win32", nodePath: "C:\\node.exe", cliPath: "C:\\cli.js", reg: async () => undefined, icacls: async (args) => void calls.push(args), username: "sam" });
+    expect(calls).toEqual([[secretPath, "/inheritance:r", "/grant:r", "sam:F"]]);
   });
 });

@@ -11,3 +11,8 @@ export function defaultSocketPath(env: NodeJS.ProcessEnv = process.env, platform
   if (platform === "win32") return `\\\\.\\pipe\\foxbridge-${env.USERNAME ?? userInfo().username}`;
   return join(home, ".foxbridge", "host.sock");
 }
+
+/** Where `install` writes the secret. FOXBRIDGE_SECRET_FILE wins. */
+export function defaultSecretPath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  return env.FOXBRIDGE_SECRET_FILE || join(home, ".foxbridge", "secret");
+}

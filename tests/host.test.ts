@@ -1,18 +1,19 @@
 // W1, W2, W5, H3 and H5-H8 in docs/failure-modes.md: the native messaging
 // host, driven by a fake Firefox and raw socket clients.
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LIMITS, defaultSocketPath, runHost } from "../src/index.js";
-import { fakeFirefox, paths, raw, sleep, start, until } from "./helpers.js";
+import { LIMITS, defaultSocketPath, encodeFrame, runHost } from "../src/index.js";
+import { SECRET, fakeFirefox, paths, raw, sleep, start, until } from "./helpers.js";
 
 describe("host", () => {
   it("W5: tells the extension it is ready, and writes nothing but frames to stdout", async () => {
     const { ext } = await start();
     await until(() => ext.seen.find((m) => m.type === "ready"));
     const client = await raw();
-    expect(client.seen[0]).toEqual({ type: "hello", version: 1 });
+    expect(client.seen[0]).toEqual({ type: "hello", version: 1, proof: createHmac("sha256", Buffer.from(SECRET, "hex")).update(`foxbridge host proof v1:${"00".repeat(32)}`).digest("hex") });
     client.send({ type: "call", id: "a", tool: "list_tabs", args: {} });
     const call = await ext.nextCall();
     expect(call).toEqual({ type: "call", id: "a", tool: "list_tabs", args: {} });
@@ -126,6 +127,29 @@ describe("host", () => {
     for (const reply of client.seen.filter((m) => m.type === "reply")) expect(reply).toMatchObject({ ok: false, error: { code: "bad-request" } });
     expect(ext.calls()).toHaveLength(1);
     client.socket.destroy();
+  });
+});
+
+describe("host proof", () => {
+  it("H11: drops a client whose first message is not a challenge, and sends nothing to the extension", async () => {
+    const { ext } = await start();
+    const socket = connect(paths.socket);
+    await new Promise((resolve) => socket.once("connect", resolve));
+    let closed = false;
+    socket.on("close", () => (closed = true));
+    socket.write(encodeFrame({ type: "call", id: "x", tool: "list_tabs", args: {} }, LIMITS.socket));
+    await until(() => (closed ? true : undefined));
+    expect(ext.calls()).toEqual([]);
+    expect(ext.seen.some((m) => m.type === "agent")).toBe(false);
+  });
+
+  it("H13: with no secret file, tells the extension no-secret and stops", async () => {
+    rmSync(paths.secret);
+    const ff = fakeFirefox();
+    const host = await runHost({ input: ff.input, output: ff.output, socketPath: paths.socket, log: () => undefined });
+    await host.closed;
+    expect(ff.seen).toContainEqual(expect.objectContaining({ type: "host-error", code: "no-secret" }));
+    expect(String(ff.seen.find((m) => m.type === "host-error")?.message)).toContain("foxbridge install");
   });
 });
 

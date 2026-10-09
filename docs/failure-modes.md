@@ -40,6 +40,7 @@ The parts:
 | I5 | `uninstall` runs when nothing is installed. | It removes nothing, says so, and exits 0. | Isolated `tests/manifest.test.ts` |
 | I6 | The manifest holds a relative path or a bad name. Firefox needs an absolute path, and a name of letters, digits, `_` and `.`. | The manifest path is absolute and the name is `foxbridge`. On macOS and Linux the path is a launcher script that runs Node with the CLI. | Isolated `tests/manifest.test.ts` |
 | I7 | On Windows, Firefox finds the manifest only through the registry. | `install` writes `HKCU\Software\Mozilla\NativeMessagingHosts\foxbridge` with `reg add`. `uninstall` deletes it. | Isolated `tests/manifest.test.ts` (with a fake `reg`). Not tested on Windows. |
+| I8 | The host and the MCP server share no secret, so neither can tell the real other side from a fake. | `install` writes 32 random bytes as hex to `~/.foxbridge/secret` with mode 0600 (on Windows, `icacls` keeps only the user). A second `install` keeps a good secret. `uninstall` removes it. `status` names a missing or loose secret. | Isolated `tests/manifest.test.ts` (with a fake `icacls`). Not tested on Windows. |
 
 ## Host and socket
 
@@ -55,6 +56,9 @@ The parts:
 | H8 | The agent sends a request id that is still waiting, or a bad request. | The host answers `bad-request` and does not send it to the extension. | Isolated `tests/host.test.ts` |
 | H9 | The agent disconnects while approvals wait. | The host tells the extension that no agent is connected. The extension cancels those approvals. | Isolated `tests/host.test.ts` |
 | H10 | Two calls for the same tab run at the same time. A `snapshot` that runs while an `act` waits for its approval changes the cached snapshot, so the approved control and the control that runs can differ. | The host sends one call for a tab at a time, in the order the agent sent them. The next call for that tab goes to the extension after the answer, or after a `cancel`. Calls for other tabs, and calls with no tab, do not wait. | Isolated `tests/host.test.ts`; E2E (a `snapshot` sent during an approval answers only after the approval) |
+| H11 | Another program takes the socket path first: another user on Windows (the pipe name `foxbridge-<user>` is easy to guess), or anyone on POSIX when `FOXBRIDGE_SOCKET` points into a shared folder. It poses as the host, sees calls, and forges answers whose summary lands in the trusted block. | The MCP server sends a random challenge first. The host answers with an HMAC-SHA256 of the challenge, keyed with the secret (I8). The MCP server refuses a wrong or missing proof with `bad-host` and sends no call. On Windows, libuv makes the first pipe instance with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so the real host cannot share a name that a squatter holds: it fails with `EADDRINUSE` and reports `socket-busy`. | Isolated `tests/bridge.test.ts` (a fake host) |
+| H12 | A fake host or a stuck host never sends `hello`. | The MCP server gives up after 5 s with `bad-host`. | Isolated `tests/bridge.test.ts` |
+| H13 | The secret file is missing, for example before `install`. | The host tells the extension `no-secret` and stops. The MCP server fails with `no-secret`. Both messages say to run `foxbridge install`. | Isolated `tests/host.test.ts`, `tests/bridge.test.ts` |
 
 ## Timeouts
 
