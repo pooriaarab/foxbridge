@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { launch, poll, serve, writeArtifact } from "create-foxkit/e2e";
-import { FrameReader, LIMITS, encodeFrame, manifestDir } from "../dist/index.js";
+import { FrameReader, LIMITS, encodeFrame, install, manifestDir } from "../dist/index.js";
 
 const record = { startedAt: new Date().toISOString(), checks: [], calls: {} };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: JSON.stringify(actual) === JSON.stringify(expected) });
@@ -155,6 +155,17 @@ try {
   const denied = await clicking;
   check("C6: a denied click is an error and nothing is sent", true, denied.isError && denied.texts[0].includes("approval-denied") && form.url().endsWith("/form.html"));
 
+  // H10: a snapshot sent while an act waits for its approval answers only after the approval.
+  const acting2 = agent.call("act", { tabId: formTab, controlId: email, op: "type", value: "sam@example.org" }, "act-ordered");
+  await poll(sidebar, () => Boolean(document.querySelector("li.ask")), undefined, 15_000);
+  let snapDone = false;
+  const snapping = agent.call("snapshot", { tabId: formTab }, "snapshot-ordered").then((r) => ((snapDone = true), r));
+  await sleep(1000);
+  check("H10: the snapshot waits while the approval waits, and no second card shows", { done: false, cards: 1 }, { done: snapDone, cards: (await state()).pending.length });
+  await answer("approve");
+  const [acted2, snap2] = [await acting2, await snapping];
+  check("H10: the act runs, then the snapshot reads the page after it", true, !acted2.isError && !snap2.isError && snap2.texts[1].includes('value="sam@example.org"'));
+
   const unshared = await agent.call("snapshot", { tabId: otherTab }, "snapshot-unshared");
   check("C1: a call on an unshared tab is refused", true, unshared.isError && unshared.texts[0].includes("not-shared"));
   const ghost = await agent.call("act", { tabId: formTab, controlId: "9:999", op: "type", value: "x" }, "act-unknown-control");
@@ -255,6 +266,38 @@ try {
   check("after the kill switch, calls get bridge-off", true, after.isError && after.texts[0].includes("bridge-off"));
   const end = await state();
   check("after the kill switch, the bridge is off and no tab is shared", { on: false, shared: 0, pending: 0 }, { on: end.on, shared: end.tabs.filter((t) => t.shared).length, pending: end.pending.length });
+
+  // C11: a host with no per-tab order sends a snapshot while an approval waits.
+  await install({ cliPath: join(process.cwd(), "e2e/loose-host.mjs") });
+  await click("#power");
+  await poll(sidebar, () => document.getElementById("status").textContent === "On, waiting for an agent");
+  await fox.open(`${site.url}/form.html?again`);
+  const freshTab = (await sidebar.evaluate(() => browser.tabs.query({}))).find((t) => t.url?.endsWith("form.html?again")).id;
+  await shareTab(freshTab);
+  const loose = connect(process.env.FOXBRIDGE_SOCKET);
+  const looseReader = new FrameReader(LIMITS.socket);
+  const looseReplies = [];
+  loose.on("data", (chunk) => looseReplies.push(...looseReader.push(chunk)));
+  await new Promise((resolve) => loose.once("connect", resolve));
+  const looseCall = (id, tool, args) => loose.write(encodeFrame({ type: "call", id, tool, args }, LIMITS.socket));
+  const looseReply = async (id) => {
+    for (let i = 0; i < 300; i++) {
+      const found = looseReplies.find((m) => m.id === id);
+      if (found) return found;
+      await sleep(50);
+    }
+    throw new Error(`no reply for ${id}`);
+  };
+  looseCall("l1", "snapshot", { tabId: freshTab });
+  const looseEmail = (await looseReply("l1")).result.untrusted.match(/\[(\d+:\d+)\] [a-z]+ "Email"/)?.[1];
+  looseCall("l2", "act", { tabId: freshTab, controlId: looseEmail, op: "type", value: "x" });
+  await poll(sidebar, () => Boolean(document.querySelector("li.ask")), undefined, 15_000);
+  looseCall("l3", "snapshot", { tabId: freshTab });
+  const busyReply = await looseReply("l3");
+  await answer("deny");
+  check("C11: the extension refuses a snapshot while an approval for that tab waits", { snapshot: "tab-busy", act: "approval-denied" }, { snapshot: busyReply.error?.code, act: (await looseReply("l2")).error?.code });
+  loose.destroy();
+  await click("#power");
 } catch (error) {
   record.error = error instanceof Error ? error.message : String(error);
   record.stateAtError = await lastState().catch(() => undefined);
