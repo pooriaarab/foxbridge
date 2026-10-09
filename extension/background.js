@@ -13,6 +13,8 @@ const HOST_NAME = "foxbridge";
 const TAB_TOOLS = { snapshot: "snapshot", act: "act", click: "click", run_task: "browser_task" };
 const OPEN_URL_SCHEMA = { type: "object", properties: { url: { type: "string", maxLength: 2000 } }, required: ["url"] };
 const LOG_MAX = 100;
+/** A new value each time the event page starts. The E2E test reads it to see an unload. */
+const BOOT = Math.random().toString(36).slice(2);
 
 const state = {
   on: false,
@@ -289,7 +291,7 @@ function stopNow() {
 async function sidebarView() {
   const all = await browser.tabs.query({});
   return {
-    on: state.on, ready: state.ready, agent: state.agent, error: state.error, settings: state.settings, log: state.log,
+    boot: BOOT, on: state.on, ready: state.ready, agent: state.agent, error: state.error, settings: state.settings, log: state.log,
     tabs: all.filter((t) => hostOf(t.url)).map((t) => ({ tabId: t.id, title: t.title ?? "", host: hostOf(t.url), shared: state.shared.has(t.id) })),
     pending: [...state.pending].map(([requestId, p]) => ({ requestId, tool: p.tool, tabId: p.tabId, title: p.title, detail: p.detail, text: p.text, expiresAt: p.expiresAt })),
   };
