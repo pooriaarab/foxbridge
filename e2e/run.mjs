@@ -17,6 +17,7 @@ import { FrameReader, LIMITS, encodeFrame, manifestDir } from "../dist/index.js"
 
 const record = { startedAt: new Date().toISOString(), checks: [], calls: {} };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: JSON.stringify(actual) === JSON.stringify(expected) });
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cli = (...args) => execFileSync(process.execPath, ["dist/cli.js", ...args], { encoding: "utf8" });
 
 // The socket lives in a temp folder, so a real foxbridge setup is not touched.
@@ -54,13 +55,14 @@ let fox;
 let lastState = async () => undefined;
 const clients = [];
 try {
-  cli("install");
-  fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed") });
+  cli("install", "--extension-id", "wrong@example.com");
+  fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed"), prefs: { "extensions.background.idle.timeout": 2000 } });
   record.firefox = await fox.browser.version();
-  const sidebar = await fox.openExtensionPage("sidebar.html");
+  let sidebar = await fox.openExtensionPage("sidebar.html");
   const state = () => sidebar.evaluate(() => browser.runtime.sendMessage({ op: "state" }));
   lastState = state;
   const click = (selector) => sidebar.evaluate((s) => document.querySelector(s).click(), selector);
+  const statusText = () => sidebar.evaluate(() => document.getElementById("status").textContent);
   /** Ticks the Share box of a tab in the sidebar, as the user does. */
   async function shareTab(tabId) {
     await poll(sidebar, (id) => Boolean(document.querySelector(`input.share[data-tab="${id}"]`)), tabId, 10_000);
@@ -77,6 +79,26 @@ try {
     await click(`li.ask button[data-op="${op}"]`);
     return card;
   }
+
+  // C10, I2, I1: the bridge starts off. A wrong id and a missing launcher give a clear error.
+  check("C10: the bridge starts off", "Off", await statusText());
+  // The control for C8: with no native port and no extension page open, the event page unloads.
+  const bootBefore = (await state()).boot;
+  await sidebar.close();
+  await sleep(5000);
+  sidebar = await fox.openExtensionPage("sidebar.html");
+  check("C8 control: with no port, the event page unloads after the 2 s idle timeout", true, (await state()).boot !== bootBefore);
+  await click("#power");
+  const wrongId = await poll(sidebar, () => document.getElementById("error").textContent);
+  check("I2: a wrong extension id stops the bridge with the install hint", true, wrongId.includes("could not start the foxbridge host") && wrongId.includes("foxbridge install"));
+  cli("install");
+  rmSync(launcherPath);
+  check("I1: status names the missing launcher", true, (() => { try { cli("status"); return false; } catch (e) { return String(e.stdout).includes(launcherPath); } })());
+  await click("#power");
+  await poll(sidebar, () => browser.runtime.sendMessage({ op: "state" }).then((s) => !s.on && s.log.filter((e) => e.text.includes("could not start")).length >= 2));
+  check("I1: a missing launcher stops the bridge with the install hint", "Off", await statusText());
+  cli("install");
+  check("status is OK after install", true, cli("status").startsWith("OK"));
 
   // H4: an agent with the bridge off.
   const early = await mcp();
@@ -170,6 +192,17 @@ try {
     input.dispatchEvent(new Event("change"));
   });
 
+  // W1: over 1 MB.
+  const big = await agent.call("run_task", { tabId: formTab, goal: "x".repeat(LIMITS.toExtension + 10) }, "run_task-too-large");
+  check("W1: a call over 1 MB is refused before Firefox sees it", true, big.isError && big.texts[0].includes("too-large"));
+
+  // H2: a second agent.
+  const second = await mcp();
+  clients.push(second);
+  const busy = await second.call("list_tabs", {}, "second-agent");
+  check("H2: a second agent gets busy", true, busy.isError && busy.texts[0].includes("busy"));
+  await second.client.close();
+
   // run_task with an approval.
   const tasking = agent.call("run_task", { tabId: formTab, goal: "name: Sam Lee, plan Team, accept the terms" }, "run_task-approved");
   const taskCard = await answer("approve");
@@ -189,7 +222,7 @@ try {
   await new Promise((resolve) => raw.once("connect", resolve));
   raw.write(encodeFrame({ type: "call", id: "r1", tool: "snapshot", args: { tabId: String(formTab) } }, LIMITS.socket));
   raw.write(encodeFrame({ type: "call", id: "r2", tool: "snapshot", args: { tabId: formTab, scope: "pay" } }, LIMITS.socket));
-  for (let i = 0; i < 100 && replies.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+  for (let i = 0; i < 100 && replies.length < 2; i++) await sleep(50);
   check("C4: the extension checks the args again: a text tab id and an extra arg are refused", ["not-shared", "bad-args"], replies.map((r) => r.error?.code));
   raw.destroy();
   await poll(sidebar, () => document.getElementById("status").textContent !== "Agent connected");
@@ -201,6 +234,16 @@ try {
   await other.goto(`http://localhost:${port}/other.html`);
   const moved = await again.call("snapshot", { tabId: otherTab }, "snapshot-moved");
   check("C2: a shared tab that moved to another site is no longer shared", true, moved.isError && moved.texts[0].includes("not-shared"));
+
+  // C8: no extension page open, a 2 s idle timeout, and an 8 s wait.
+  const bootOn = (await state()).boot;
+  await sidebar.close();
+  await sleep(8000);
+  const idle = await again.call("list_tabs", {}, "after-idle");
+  sidebar = await fox.openExtensionPage("sidebar.html");
+  const bootAfter = (await state()).boot;
+  record.idle = { idleTimeoutMs: 2000, waitedMs: 8000, bridgeAnswered: !idle.isError, sameEventPage: bootAfter === bootOn, text: idle.texts[0] };
+  check("C8: the open native port keeps the event page alive", { answered: true, samePage: true }, { answered: !idle.isError, samePage: bootAfter === bootOn });
 
   // C3, H1: the kill switch while an approval waits.
   const pendingOpen = again.call("open_url", { url: `${site.url}/other.html` }, "kill-switch");
