@@ -24,6 +24,15 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      foxgate:
+        specifier: ^0.1.0
+        version: 0.1.0
+      foxloop:
+        specifier: ^0.1.0
+        version: 0.1.0
+      foxpaw:
+        specifier: ^0.1.0
+        version: 0.1.0
       oxlint:
         specifier: ^1.87.0
         version: 1.87.0
@@ -1290,6 +1299,18 @@ packages:
   forwarded@0.2.0:
     resolution: {integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==}
     engines: {node: '>= 0.6'}
+
+  foxgate@0.1.0:
+    resolution: {integrity: sha512-2LcqcDZ5z9nVCHgG/k22qY688Njy53d6e38+mYVY6VpU70iAKQunIK23NUu8lQif3TSrSCaj3XVHpB+lRhOFzQ==}
+    engines: {node: '>=24'}
+
+  foxloop@0.1.0:
+    resolution: {integrity: sha512-NHBOlGoJhRYjAzEpQKUA2PUHK+ZvTKfi0Gf64O36k/ujZWKhdWQuNjVOM4w16HB6QHT9rJz2u4urpyzyBjtD7Q==}
+    engines: {node: '>=24'}
+
+  foxpaw@0.1.0:
+    resolution: {integrity: sha512-kYYNAOjK60ExTND4JNGkScfXAvY3Uq0KrYuqRfP2gbbjmgX6FMhwrnFRDVWrZWR81gMZKolcdGxxSKvN3guUbw==}
+    engines: {node: '>=24'}
 
   fresh@2.0.0:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
@@ -3467,6 +3488,15 @@ snapshots:
   flatted@3.4.4: {}
 
   forwarded@0.2.0: {}
+
+  foxgate@0.1.0: {}
+
+  foxloop@0.1.0:
+    dependencies:
+      foxgate: 0.1.0
+      foxpaw: 0.1.0
+
+  foxpaw@0.1.0: {}
 
   fresh@2.0.0: {}
 
