@@ -54,6 +54,7 @@ The parts:
 | H7 | Another user on the computer connects to the socket. | The socket directory has mode 0700, so only the owner can reach it. | Isolated `tests/host.test.ts` (POSIX) |
 | H8 | The agent sends a request id that is still waiting, or a bad request. | The host answers `bad-request` and does not send it to the extension. | Isolated `tests/host.test.ts` |
 | H9 | The agent disconnects while approvals wait. | The host tells the extension that no agent is connected. The extension cancels those approvals. | Isolated `tests/host.test.ts` |
+| H10 | Two calls for the same tab run at the same time. A `snapshot` that runs while an `act` waits for its approval changes the cached snapshot, so the approved control and the control that runs can differ. | The host sends one call for a tab at a time, in the order the agent sent them. The next call for that tab goes to the extension after the answer, or after a `cancel`. Calls for other tabs, and calls with no tab, do not wait. | Isolated `tests/host.test.ts`; E2E (a `snapshot` sent during an approval answers only after the approval) |
 
 ## Timeouts
 
@@ -77,6 +78,7 @@ The parts:
 | C8 | The event page unloads while the native port is open. Then the port and the host would stop with no warning. | Measured in E2E: with no extension page open and a 2 s idle timeout, the bridge must still answer after 8 s. If Firefox unloads the page, the agent gets `host-gone` (H1) and nothing runs. | E2E (measurement) |
 | C9 | The agent asks for cookies or a password. | The extension has no `cookies` permission and no tool that reads cookies. foxpaw shows a password value as `•••`. | E2E (a filled password field) |
 | C10 | The bridge turns itself on after a Firefox restart. | The on state and the shared tabs live only in the event page memory. Turn off stops all sharing. After a restart the bridge is off. | E2E (the bridge starts off) |
+| C11 | A buggy or hostile host sends calls for one tab at the same time (H10 does not hold). | The extension runs the calls for a tab one at a time. It refuses a `snapshot` for a tab with `tab-busy` while an approval for that tab waits. A queued call that the agent cancelled does not run. | E2E (a host with no per-tab order and a raw socket client) |
 
 ## Page text and prompt injection
 
