@@ -64,4 +64,15 @@ describe("frames", () => {
     else header.writeUInt32BE(body.length);
     expect(codeOf(() => reader.push(Buffer.concat([header, body])))).toBe("bad-frame");
   });
+
+  it("W6: reads an 8 MB frame that arrives in 1 KB chunks in under 1 s", () => {
+    const reader = new FrameReader(LIMITS.socket);
+    const frame = encodeFrame("x".repeat(LIMITS.socket - 2), LIMITS.socket);
+    const started = Date.now();
+    const seen: unknown[] = [];
+    for (let at = 0; at < frame.length; at += 1024) seen.push(...reader.push(frame.subarray(at, at + 1024)));
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as string).length).toBe(LIMITS.socket - 2);
+  });
 });

@@ -10,10 +10,12 @@ import { EXTENSION_ID, FoxbridgeError, HOST_NAME, install, manifestDir, status, 
 let home = "";
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "fbr-home-"));
+  posix.cliPath = join(home, "cli.js");
+  writeFileSync(posix.cliPath, "");
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
-const posix = { platform: "linux" as const, nodePath: process.execPath, cliPath: "/opt/foxbridge/dist/cli.js" };
+const posix = { platform: "linux" as const, nodePath: process.execPath, cliPath: "" };
 
 describe("manifest place", () => {
   it("uses the per-user folders that Firefox reads", () => {
@@ -61,6 +63,9 @@ describe("install", () => {
     expect(result.warnings.join(" ")).toMatch(/npx/);
     const clean = await install({ home, ...posix });
     expect(clean.warnings).toEqual([]);
+    for (const cache of ["/Users/sam/Library/Caches/pnpm/dlx/5f2e/node_modules/foxbridge/dist/cli.js", "/private/tmp/bunx-501-foxbridge@latest/node_modules/foxbridge/dist/cli.js", "/tmp/xfs-1a2b/dlx-77/node_modules/foxbridge/dist/cli.js"]) {
+      expect((await install({ home, ...posix, cliPath: cache })).warnings.join(" "), cache).toMatch(/cache/);
+    }
   });
 
   it("I7: on Windows, writes the registry key that points to the manifest", async () => {
@@ -100,6 +105,16 @@ describe("status", () => {
     const result = await status({ home, platform: "linux" });
     expect(result.ok).toBe(false);
     expect(result.problems.join(" ")).toContain("someone@else");
+  });
+});
+
+describe("status of the launcher", () => {
+  it("I9: names a missing Node binary or CLI file in the launcher", async () => {
+    await install({ home, ...posix, nodePath: join(home, "gone", "node") });
+    expect((await status({ home, platform: "linux" })).problems.join(" ")).toContain(join(home, "gone", "node"));
+    await install({ home, ...posix });
+    rmSync(posix.cliPath);
+    expect((await status({ home, platform: "linux" })).problems.join(" ")).toContain(posix.cliPath);
   });
 });
 
