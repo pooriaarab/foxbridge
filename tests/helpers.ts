@@ -12,7 +12,7 @@ export type Msg = Record<string, unknown>;
 
 export const paths = { dir: "", socket: "", secret: "" };
 export const SECRET = "ab".repeat(32);
-const running: RunningHost[] = [];
+export const running: RunningHost[] = [];
 beforeEach(() => {
   paths.dir = mkdtempSync(join(tmpdir(), "fbr-"));
   paths.socket = join(paths.dir, "s", "host.sock");

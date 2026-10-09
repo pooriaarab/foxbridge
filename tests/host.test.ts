@@ -1,12 +1,12 @@
 // W1, W2, W5, H3 and H5-H8 in docs/failure-modes.md: the native messaging
 // host, driven by a fake Firefox and raw socket clients.
 import { createHmac } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LIMITS, defaultSocketPath, encodeFrame, runHost } from "../src/index.js";
-import { SECRET, fakeFirefox, paths, raw, sleep, start, until } from "./helpers.js";
+import { SECRET, fakeFirefox, paths, raw, running, sleep, start, until } from "./helpers.js";
 
 describe("host", () => {
   it("W5: tells the extension it is ready, and writes nothing but frames to stdout", async () => {
@@ -69,7 +69,7 @@ describe("host", () => {
   });
 
   it("H3: removes a socket file that nothing answers on, then listens", async () => {
-    mkdirSync(dirname(paths.socket), { recursive: true });
+    mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 });
     writeFileSync(paths.socket, "");
     const { ext } = await start();
     const client = await raw();
@@ -150,6 +150,68 @@ describe("host proof", () => {
     await host.closed;
     expect(ff.seen).toContainEqual(expect.objectContaining({ type: "host-error", code: "no-secret" }));
     expect(String(ff.seen.find((m) => m.type === "host-error")?.message)).toContain("foxbridge install");
+  });
+});
+
+/** Starts a host on `socketPath` and returns what it told the extension. */
+async function hostAt(socketPath: string) {
+  const ff = fakeFirefox();
+  const host = await runHost({ input: ff.input, output: ff.output, socketPath, log: () => undefined });
+  running.push(host);
+  return { host, ff };
+}
+
+describe("socket folder", () => {
+  it.skipIf(process.platform === "win32")("H14: refuses a socket folder that is a symlink", async () => {
+    const real = join(paths.dir, "real");
+    mkdirSync(real, { mode: 0o700 });
+    symlinkSync(real, join(paths.dir, "link"));
+    const { host, ff } = await hostAt(join(paths.dir, "link", "host.sock"));
+    await host.closed;
+    expect(ff.seen).toContainEqual(expect.objectContaining({ type: "host-error", code: "unsafe-folder" }));
+  });
+
+  it.skipIf(process.platform === "win32")("H14: refuses a folder of another user, such as /tmp", async () => {
+    const { host, ff } = await hostAt(`/tmp/fbr-${process.pid}.sock`);
+    await host.closed;
+    expect(ff.seen).toContainEqual(expect.objectContaining({ type: "host-error", code: "unsafe-folder" }));
+  });
+
+  it.skipIf(process.platform === "win32")("H14: refuses a folder that others can read, unless it is a .foxbridge folder", async () => {
+    const loose = join(paths.dir, "loose");
+    mkdirSync(loose, { mode: 0o755 });
+    chmodSync(loose, 0o755);
+    const refused = await hostAt(join(loose, "host.sock"));
+    await refused.host.closed;
+    expect(refused.ff.seen).toContainEqual(expect.objectContaining({ type: "host-error", code: "unsafe-folder" }));
+    const ours = join(paths.dir, ".foxbridge");
+    mkdirSync(ours, { mode: 0o755 });
+    chmodSync(ours, 0o755);
+    const { ff } = await hostAt(join(ours, "host.sock"));
+    await until(() => ff.seen.find((m) => m.type === "ready"));
+    expect(statSync(ours).mode & 0o777).toBe(0o700);
+  });
+
+  it.skipIf(process.platform === "win32")("H16: two hosts after a crash: one listens, the other reports socket-busy", async () => {
+    mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 });
+    writeFileSync(paths.socket, "");
+    const [a, b] = await Promise.all([hostAt(paths.socket), hostAt(paths.socket)]);
+    await until(() => [a, b].some((h) => h.ff.seen.some((m) => m.type === "ready")) && [a, b].some((h) => h.ff.seen.some((m) => m.code === "socket-busy")) ? true : undefined, 4000);
+    const winner = [a, b].find((h) => h.ff.seen.some((m) => m.type === "ready"));
+    expect([a, b].filter((h) => h.ff.seen.some((m) => m.type === "ready"))).toHaveLength(1);
+    const client = await raw();
+    client.send({ type: "call", id: "w", tool: "list_tabs", args: {} });
+    expect(await until(() => winner?.ff.calls()[0])).toMatchObject({ id: "w" });
+    expect(existsSync(`${paths.socket}.lock`)).toBe(false);
+    client.socket.destroy();
+  });
+
+  it.skipIf(process.platform === "win32")("H16: removes a lock left by a dead host", async () => {
+    mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 });
+    writeFileSync(paths.socket, "");
+    writeFileSync(`${paths.socket}.lock`, "999999");
+    const { ff } = await hostAt(paths.socket);
+    await until(() => ff.seen.find((m) => m.type === "ready"));
   });
 });
 

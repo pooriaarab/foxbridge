@@ -202,7 +202,10 @@ The manifest goes to
 on macOS and `~/.mozilla/native-messaging-hosts/foxbridge.json` on Linux.
 Its `allowed_extensions` holds only `foxbridge@pooriaarab`.
 `FOXBRIDGE_SOCKET` changes the socket path for both the host and the MCP
-server.
+server. The host refuses a socket folder that is a symlink, belongs to
+another user, or is open to other users (`unsafe-folder`), so
+`FOXBRIDGE_SOCKET=/tmp/x.sock` does not work. Use a folder of your own with
+mode 0700.
 
 ### Library
 

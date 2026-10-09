@@ -2,9 +2,9 @@
 // bridge, and talks to it on stdin and stdout. It listens on a local
 // socket for one MCP server at a time and passes calls and answers through.
 // It never writes logs to stdout: stdout carries frames only.
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { FrameReader, LIMITS, encodeFrame } from "./frame.js";
 import { MESSAGES, type HostToAgent, type HostToExtension } from "./protocol.js";
 import { hostProof, readSecret } from "./secret.js";
@@ -67,6 +67,61 @@ function toAgent(socket: Socket, message: HostToAgent): void {
 }
 
 const refuse = (socket: Socket, id: string, code: string, message: string) => toAgent(socket, { type: "reply", id, ok: false, error: { code, message } });
+
+/** H15: listen with umask 077, so a socket file is made 0600 with no loose moment. */
+async function listenPrivate(server: Server, path: string): Promise<void> {
+  if (isPipe(path)) return listen(server, path);
+  const before = process.umask(0o077);
+  try {
+    await listen(server, path);
+  } finally {
+    process.umask(before);
+  }
+}
+
+/**
+ * H14: the socket folder must be a real folder of this user with mode
+ * 0700. A folder that this call makes, or a folder named .foxbridge, is
+ * tightened to 0700. Returns why the folder is unsafe, or undefined.
+ */
+async function checkFolder(dir: string): Promise<string | undefined> {
+  const made = await mkdir(dir, { recursive: true, mode: 0o700 });
+  const info = await lstat(dir);
+  if (info.isSymbolicLink() || !info.isDirectory()) return `${dir} is not a real folder. foxbridge does not put its socket there.`;
+  if (process.getuid && info.uid !== process.getuid()) return `${dir} belongs to another user. Set FOXBRIDGE_SOCKET to a path in a folder of your own with mode 0700.`;
+  if ((info.mode & 0o077) === 0) return undefined;
+  if (made || basename(dir) === ".foxbridge") {
+    await chmod(dir, 0o700);
+    return undefined;
+  }
+  return `Other users can open ${dir}. Run "chmod 700 ${dir}", or set FOXBRIDGE_SOCKET to a path in a folder of your own.`;
+}
+
+/** H16: takes the start lock. A lock of a dead process is removed. Returns false when a live host holds it. */
+async function takeLock(path: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await writeFile(path, String(process.pid), { flag: "wx", mode: 0o600 });
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const pid = Number(await readFile(path, "utf8").catch(() => ""));
+      if (alive(pid)) return false;
+      await rm(path, { force: true });
+    }
+  }
+  return false;
+}
+
+function alive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 
 export async function runHost(o: HostOptions): Promise<RunningHost> {
   const log = o.log ?? ((line: string) => process.stderr.write(`foxbridge host: ${line}\n`));
@@ -227,24 +282,41 @@ export async function runHost(o: HostOptions): Promise<RunningHost> {
     return { closed, close };
   }
 
-  // A folder that the host makes gets mode 0700. FOXBRIDGE_SOCKET can name
-  // a shared folder such as /tmp, so the socket file itself gets 0600.
-  if (!isPipe(o.socketPath) && (await mkdir(dirname(o.socketPath), { recursive: true, mode: 0o700 }))) await chmod(dirname(o.socketPath), 0o700);
+  const stop = async (code: string, message: string) => {
+    log(message);
+    toExtension({ type: "host-error", code, message });
+    await close();
+    return { closed, close };
+  };
+  if (!isPipe(o.socketPath)) {
+    const unsafe = await checkFolder(dirname(o.socketPath));
+    if (unsafe) return stop("unsafe-folder", unsafe);
+  }
+  const busy = `Another foxbridge host listens on ${o.socketPath}. Turn off the bridge in the other Firefox profile.`;
   try {
-    await listen(server, o.socketPath);
+    await listenPrivate(server, o.socketPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
-    if (await answers(o.socketPath)) {
-      const message = `Another foxbridge host listens on ${o.socketPath}. Turn off the bridge in the other Firefox profile.`;
-      log(message);
-      toExtension({ type: "host-error", code: "socket-busy", message });
-      await close();
-      return { closed, close };
+    // A Windows pipe name that another program holds: libuv's first instance uses FILE_FLAG_FIRST_PIPE_INSTANCE.
+    if (isPipe(o.socketPath)) return stop("socket-busy", busy);
+    // H16: remove a dead socket only under the lock, and check again there.
+    const lock = await takeLock(`${o.socketPath}.lock`);
+    if (!lock) return stop("socket-busy", busy);
+    try {
+      if (await answers(o.socketPath)) return stop("socket-busy", busy);
+      await rm(o.socketPath, { force: true });
+      try {
+        await listenPrivate(server, o.socketPath);
+      } catch (again) {
+        if ((again as NodeJS.ErrnoException).code === "EADDRINUSE") return stop("socket-busy", busy);
+        throw again;
+      }
+    } finally {
+      await rm(`${o.socketPath}.lock`, { force: true });
     }
-    await rm(o.socketPath, { force: true });
-    await listen(server, o.socketPath);
   }
   listening = true;
+  // The umask made it 0700 already; 0600 drops the bit a socket does not use.
   if (!isPipe(o.socketPath)) await chmod(o.socketPath, 0o600);
   toExtension({ type: "ready" });
   return { closed, close };
