@@ -27,6 +27,7 @@ The parts:
 | W2 | A length header says more bytes than the limit, from Firefox or from the socket. The reader waits for, or allocates, a huge buffer. | The reader throws `too-large` at the header. The host drops that agent connection. From Firefox, the host stops. | Isolated `tests/frame.test.ts`, `tests/host.test.ts` |
 | W3 | A frame body is not JSON. | The reader throws `bad-frame`. The connection closes as in W2. | Isolated `tests/frame.test.ts` |
 | W4 | One frame arrives in many chunks, or many frames arrive in one chunk. | The reader gives each message one time, in order. | Isolated `tests/frame.test.ts` |
+| W6 | An 8 MB frame arrives in many small chunks. A reader that joins its buffer on each chunk copies the data again and again (quadratic time). | The reader keeps the chunks in a list and joins them one time, when a whole frame is there. | Isolated `tests/frame.test.ts` (8 MB in 1 KB chunks in under 1 s) |
 | W5 | A log line goes to stdout. Firefox reads it as a broken frame and closes the port. In `mcp` mode the agent reads a broken message. | The host and the MCP server write logs to stderr only. Everything on stdout decodes as frames. | Isolated `tests/host.test.ts`; E2E (the MCP client connects) |
 
 ## Install and the host manifest
@@ -35,12 +36,13 @@ The parts:
 |---|---|---|---|
 | I1 | The host manifest points to a file that does not exist, for example after the package moved. Firefox cannot start the host. | `foxbridge status` names the missing file. The sidebar says that Firefox could not start the host and shows the install command. | Isolated `tests/manifest.test.ts`; E2E |
 | I2 | `allowed_extensions` holds a different extension id. Firefox refuses the connection. | The manifest holds only the foxbridge extension id by default. `foxbridge status` names a different id. The sidebar shows the error from Firefox. | Isolated `tests/manifest.test.ts`; E2E |
-| I3 | `foxbridge install` runs from an `npx` cache. npm can delete that cache, and then I1 happens. | `install` warns and tells the user to install the package globally first. | Isolated `tests/manifest.test.ts` |
+| I3 | `foxbridge install` runs from a package runner cache: `npx`, `pnpm dlx`, `yarn dlx` or `bunx`. The runner can delete that cache, and then I1 happens. | `install` warns and tells the user to install the package globally first. | Isolated `tests/manifest.test.ts` |
 | I4 | The platform has no known manifest place. | `install` throws `unsupported-platform` and names the platform. | Isolated `tests/manifest.test.ts` |
 | I5 | `uninstall` runs when nothing is installed. | It removes nothing, says so, and exits 0. | Isolated `tests/manifest.test.ts` |
 | I6 | The manifest holds a relative path or a bad name. Firefox needs an absolute path, and a name of letters, digits, `_` and `.`. | The manifest path is absolute and the name is `foxbridge`. On macOS and Linux the path is a launcher script that runs Node with the CLI. | Isolated `tests/manifest.test.ts` |
 | I7 | On Windows, Firefox finds the manifest only through the registry. | `install` writes `HKCU\Software\Mozilla\NativeMessagingHosts\foxbridge` with `reg add`. `uninstall` deletes it. | Isolated `tests/manifest.test.ts` (with a fake `reg`). Not tested on Windows. |
 | I8 | The host and the MCP server share no secret, so neither can tell the real other side from a fake. | `install` writes 32 random bytes as hex to `~/.foxbridge/secret` with mode 0600 (on Windows, `icacls` keeps only the user). A second `install` keeps a good secret. `uninstall` removes it. `status` names a missing or loose secret. | Isolated `tests/manifest.test.ts` (with a fake `icacls`). Not tested on Windows. |
+| I9 | The launcher exists, but the Node binary or the CLI file it runs is gone (Node was upgraded, the package moved). | `status` reads the launcher and names a missing Node binary or CLI file. | Isolated `tests/manifest.test.ts` |
 
 ## Host and socket
 
