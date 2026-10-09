@@ -1,8 +1,12 @@
 // W1, H1, H2, H4, H9, T2 and T3 in docs/failure-modes.md: the MCP side of
 // the host socket.
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TIMEOUT_MS, FoxbridgeError, LIMITS, MAX_APPROVAL_SECONDS, connectBridge } from "../src/index.js";
-import { codeOf, paths, start, until } from "./helpers.js";
+import { createHmac } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { dirname } from "node:path";
+import { DEFAULT_TIMEOUT_MS, FoxbridgeError, FrameReader, LIMITS, MAX_APPROVAL_SECONDS, connectBridge, encodeFrame } from "../src/index.js";
+import { SECRET, codeOf, paths, sleep, start, until } from "./helpers.js";
 
 describe("bridge client", () => {
   it("sends a call and gets its answer", async () => {
@@ -92,5 +96,71 @@ describe("bridge client", () => {
   it("T3: the default timeout is longer than the longest approval time", () => {
     expect(DEFAULT_TIMEOUT_MS).toBe(180_000);
     expect(DEFAULT_TIMEOUT_MS).toBeGreaterThan(MAX_APPROVAL_SECONDS * 1000);
+  });
+});
+
+/** A fake host on paths.socket that answers the challenge with `answer`. */
+async function squatter(answer: (nonce: string) => unknown) {
+  mkdirSync(dirname(paths.socket), { recursive: true, mode: 0o700 });
+  const seen: Record<string, unknown>[] = [];
+  const server = createServer((socket) => {
+    const reader = new FrameReader(LIMITS.socket);
+    socket.on("data", (chunk: Buffer) => {
+      for (const m of reader.push(chunk) as Record<string, unknown>[]) {
+        seen.push(m);
+        const reply = m.type === "challenge" ? answer(String(m.nonce)) : undefined;
+        if (reply) socket.write(encodeFrame(reply, LIMITS.socket));
+      }
+    });
+    socket.on("error", () => undefined);
+  });
+  await new Promise<void>((resolve) => server.listen(paths.socket, resolve));
+  return { seen, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+describe("host proof", () => {
+  it("H11: refuses a host with a wrong proof, and sends it no call", async () => {
+    const fake = await squatter(() => ({ type: "hello", version: 1, proof: "00".repeat(32) }));
+    const error = await connectBridge({ socketPath: paths.socket }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "bad-host" });
+    await sleep(50);
+    expect(fake.seen.map((m) => m.type)).toEqual(["challenge"]);
+    expect(String(fake.seen[0]?.nonce)).toMatch(/^[0-9a-f]{64}$/);
+    await fake.close();
+  });
+
+  it("H11: refuses a host that sends hello with no proof", async () => {
+    const fake = await squatter(() => ({ type: "hello", version: 1 }));
+    expect(await codeOf(connectBridge({ socketPath: paths.socket }))).toBe("bad-host");
+    await fake.close();
+  });
+
+  it("H11: accepts a host that proves the secret, with a fresh challenge each time", async () => {
+    const nonces: string[] = [];
+    const fake = await squatter((nonce) => {
+      nonces.push(nonce);
+      return { type: "hello", version: 1, proof: createHmac("sha256", Buffer.from(SECRET, "hex")).update(`foxbridge host proof v1:${nonce}`).digest("hex") };
+    });
+    (await connectBridge({ socketPath: paths.socket })).close();
+    (await connectBridge({ socketPath: paths.socket })).close();
+    expect(nonces).toHaveLength(2);
+    expect(nonces[0]).not.toBe(nonces[1]);
+    await fake.close();
+  });
+
+  it("H12: gives up on a host that never sends hello", async () => {
+    const fake = await squatter(() => undefined);
+    const started = Date.now();
+    expect(await codeOf(connectBridge({ socketPath: paths.socket, helloTimeoutMs: 200 }))).toBe("bad-host");
+    expect(Date.now() - started).toBeLessThan(1500);
+    await fake.close();
+  });
+
+  it("H13: fails with no-secret when the secret file is missing", async () => {
+    await start();
+    rmSync(paths.secret);
+    const error = await connectBridge({ socketPath: paths.socket }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "no-secret" });
+    expect(String((error as Error).message)).toContain("foxbridge install");
   });
 });
