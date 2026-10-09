@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>foxbridge</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <header>
+    <h1>foxbridge</h1>
+    <p id="status" class="off">Off</p>
+  </header>
+  <div class="row">
+    <button id="power" type="button">Turn on</button>
+    <button id="stop" type="button" class="danger" title="Close the bridge and stop sharing every tab">Stop now</button>
+  </div>
+  <p id="error" class="error" hidden></p>
+
+  <section>
+    <h2>Tabs</h2>
+    <p class="hint">An agent can see only the tabs you share.</p>
+    <ul id="tabs" class="tabs"></ul>
+  </section>
+
+  <section>
+    <h2>Activity</h2>
+    <ol id="log" class="log"></ol>
+  </section>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

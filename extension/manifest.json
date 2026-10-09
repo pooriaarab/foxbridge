@@ -1,29 +1,27 @@
 {
   "manifest_version": 3,
-  "name": "foxbridge demo",
+  "name": "foxbridge",
   "version": "0.1.0",
-  "description": "Let outside agents such as Claude Code use fox primitives through MCP.",
+  "description": "Let outside agents such as Claude Code see the tabs you share, through MCP.",
   "browser_specific_settings": {
     "gecko": {
       "id": "foxbridge@pooriaarab",
       "strict_min_version": "153.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": ["browsingActivity"]
       }
     }
   },
-  "permissions": ["storage"],
+  "permissions": ["nativeMessaging", "tabs"],
   "background": {
     "scripts": ["background.js"]
   },
   "action": {
-    "default_title": "foxbridge demo",
-    "default_popup": "popup.html"
+    "default_title": "foxbridge"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://127.0.0.1/*"],
-      "js": ["content.js"]
-    }
-  ]
+  "sidebar_action": {
+    "default_title": "foxbridge",
+    "default_panel": "sidebar.html",
+    "open_at_install": false
+  }
 }

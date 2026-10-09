@@ -69,14 +69,14 @@ The parts:
 |---|---|---|---|
 | C1 | The agent calls a tool on a tab that the user did not share. | The extension refuses with `not-shared` before it reads the tab. No approval card shows. | E2E |
 | C2 | A shared tab moves to another site. | Sharing for that tab stops. Later calls get `not-shared`. | E2E |
-| C3 | The kill switch is used while a call waits. | The extension closes the native port, which stops the host (H1). It denies the waiting approvals and stops sharing every tab. | E2E |
+| C3 | The kill switch (or Turn off) is used while a call waits. | The extension closes the native port, which stops the host (H1). It denies the waiting approvals and stops sharing every tab. | E2E |
 | C4 | Arguments do not fit the tool schema. They come from a buggy or hostile host, not only from the MCP server. | The extension checks them again with the foxloop schema. It refuses with `bad-args` and the path of the first error. | E2E (a raw socket client) |
 | C5 | `open_url` gets a `javascript:`, `file:`, `data:` or `moz-extension:` address. | The extension refuses with `bad-args` before it asks the human. | E2E |
 | C6 | The human denies the action. | Nothing runs. The agent gets `approval-denied`. | E2E |
 | C7 | `act` or `click` names a control that is not in the last snapshot of that tab. | The extension refuses with `bad-args` and asks for a snapshot. No approval card shows. | E2E |
 | C8 | The event page unloads while the native port is open. Then the port and the host would stop with no warning. | Measured in E2E: with no extension page open and a 2 s idle timeout, the bridge must still answer after 8 s. If Firefox unloads the page, the agent gets `host-gone` (H1) and nothing runs. | E2E (measurement) |
 | C9 | The agent asks for cookies or a password. | The extension has no `cookies` permission and no tool that reads cookies. foxpaw shows a password value as `•••`. | E2E (a filled password field) |
-| C10 | The bridge turns itself on after a Firefox restart. | The on state lives in `storage.session`, so it is off after a restart. | E2E (the bridge starts off) |
+| C10 | The bridge turns itself on after a Firefox restart. | The on state and the shared tabs live only in the event page memory. Turn off stops all sharing. After a restart the bridge is off. | E2E (the bridge starts off) |
 
 ## Page text and prompt injection
 
