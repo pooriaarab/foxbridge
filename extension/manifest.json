@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "foxbridge demo",
+  "version": "0.1.0",
+  "description": "Let outside agents such as Claude Code use fox primitives through MCP.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "foxbridge@pooriaarab",
+      "strict_min_version": "153.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": ["storage"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "foxbridge demo",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
