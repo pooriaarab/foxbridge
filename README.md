@@ -36,9 +36,10 @@ Then do these steps one time:
    foxbridge install
    ```
 
-2. Add the extension to Firefox. Use the `.xpi` file from a
-   [GitHub release](https://github.com/pooriaarab/foxbridge/releases), or
-   build it with `pnpm build:ext` and load `dist-ext/manifest.json` from
+2. Add the extension to Firefox. Install from AMO:
+   [addons.mozilla.org/firefox/addon/foxbridge-mcp](https://addons.mozilla.org/firefox/addon/foxbridge-mcp/)
+   (pending AMO review; the link works after approval). You can also build
+   it with `pnpm build:ext` and load `dist-ext/manifest.json` from
    `about:debugging`.
 3. Register the MCP server with your agent. For Claude Code:
 
