@@ -12,13 +12,18 @@
   </header>
   <div class="row">
     <button id="power" type="button">Turn on</button>
-    <button id="stop" type="button" class="danger" title="Close the bridge and stop sharing every tab">Stop now</button>
+    <button id="stop" type="button" class="danger" title="Close the bridge, deny what waits, and stop sharing every tab">Stop now</button>
   </div>
   <p id="error" class="error" hidden></p>
 
   <section>
+    <h2>Waiting for you</h2>
+    <ul id="pending" class="cards"></ul>
+  </section>
+
+  <section>
     <h2>Tabs</h2>
-    <p class="hint">An agent can see only the tabs you share.</p>
+    <p class="hint">An agent can use only the tabs you share. It can read a shared tab. Each change waits for you here.</p>
     <ul id="tabs" class="tabs"></ul>
   </section>
 
@@ -27,6 +32,12 @@
     <ol id="log" class="log"></ol>
   </section>
 
+  <section>
+    <h2>Settings</h2>
+    <label class="setting">Approval time in seconds
+      <input id="seconds" type="number" min="2" max="150" step="1">
+    </label>
+  </section>
   <script src="sidebar.js"></script>
 </body>
 </html>

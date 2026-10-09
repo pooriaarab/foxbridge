@@ -1,6 +1,6 @@
-// The foxbridge sidebar: the on switch, the kill switch, the shared tabs
-// and the activity log. Page text is set with textContent only, never as
-// HTML.
+// The foxbridge sidebar: the on switch, the kill switch, the shared tabs,
+// the approvals and the activity log. Page text is set with textContent
+// only, never as HTML.
 const $ = (id) => document.getElementById(id);
 const send = (message) => browser.runtime.sendMessage(message);
 let last = null;
@@ -29,6 +29,16 @@ function render(s) {
   $("error").hidden = !s.error;
   $("error").textContent = s.error;
 
+  $("pending").replaceChildren(...(s.pending.length ? s.pending.map((p) => el("li", { className: "ask" },
+    el("div", {}, el("strong", { textContent: p.tool }), p.tabId === null ? "" : ` on tab ${p.tabId}`),
+    el("p", { className: "detail", textContent: p.detail }),
+    el("pre", { textContent: p.text }),
+    el("div", { className: "row" },
+      el("button", { type: "button", className: "primary", textContent: "Approve", dataset: { op: "approve", id: p.requestId } }),
+      el("button", { type: "button", textContent: "Deny", dataset: { op: "deny", id: p.requestId } }),
+      el("span", { className: "left", dataset: { until: String(p.expiresAt) } })),
+  )) : [el("li", { className: "empty", textContent: "Nothing waits." })]));
+
   $("tabs").replaceChildren(...(s.tabs.length ? s.tabs.map((t) => el("li", {},
     el("label", {},
       el("input", { type: "checkbox", className: "share", checked: t.shared, dataset: { tab: String(t.tabId) } }),
@@ -38,17 +48,32 @@ function render(s) {
 
   $("log").replaceChildren(...s.log.slice(0, 30).map((entry) => el("li", {},
     el("time", { textContent: new Date(entry.at).toLocaleTimeString() }), entry.text)));
+
+  if (document.activeElement !== $("seconds")) $("seconds").value = String(s.settings.approvalSeconds);
+  tick();
+}
+
+function tick() {
+  for (const span of document.querySelectorAll("[data-until]")) {
+    span.textContent = `${Math.max(0, Math.ceil((Number(span.dataset.until) - Date.now()) / 1000))} s left`;
+  }
 }
 
 const refresh = async () => render(await send({ op: "state" }));
 
 $("power").addEventListener("click", async () => render(await send({ op: last?.on ? "off" : "on" })));
 $("stop").addEventListener("click", async () => render(await send({ op: "off" })));
+$("pending").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-op]");
+  if (button) render(await send({ op: "answer", requestId: button.dataset.id, answer: button.dataset.op }));
+});
 $("tabs").addEventListener("change", async (event) => {
   const box = event.target.closest("input.share");
   if (box) render(await send({ op: "share", tabId: Number(box.dataset.tab), on: box.checked }));
 });
+$("seconds").addEventListener("change", async () => render(await send({ op: "settings", approvalSeconds: $("seconds").value })));
 browser.runtime.onMessage.addListener((message) => {
   if (message?.type === "changed") void refresh();
 });
+setInterval(tick, 1000);
 void refresh();
