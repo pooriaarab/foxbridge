@@ -27,7 +27,8 @@ const manifestPath = join(manifestDir(), "foxbridge.json");
 const launcherPath = join(homedir(), ".foxbridge", process.platform === "win32" ? "foxbridge-host.cmd" : "foxbridge-host");
 const launcherDir = join(homedir(), ".foxbridge");
 const freshDirs = [manifestDir(), launcherDir].filter((dir) => !existsSync(dir));
-const saved = [manifestPath, launcherPath].filter(existsSync).map((file, i) => {
+const secretPath = join(homedir(), ".foxbridge", "secret");
+const saved = [manifestPath, launcherPath, secretPath].filter(existsSync).map((file, i) => {
   const copy = join(work, `saved-${i}`);
   copyFileSync(file, copy);
   return { file, copy };
@@ -231,6 +232,7 @@ try {
   const replies = [];
   raw.on("data", (chunk) => replies.push(...reader.push(chunk).filter((m) => m.type === "reply")));
   await new Promise((resolve) => raw.once("connect", resolve));
+  raw.write(encodeFrame({ type: "challenge", nonce: "00".repeat(32) }, LIMITS.socket));
   raw.write(encodeFrame({ type: "call", id: "r1", tool: "snapshot", args: { tabId: String(formTab) } }, LIMITS.socket));
   raw.write(encodeFrame({ type: "call", id: "r2", tool: "snapshot", args: { tabId: formTab, scope: "pay" } }, LIMITS.socket));
   for (let i = 0; i < 100 && replies.length < 2; i++) await sleep(50);
@@ -309,7 +311,7 @@ try {
   for (const { file, copy } of saved) {
     mkdirSync(join(file, ".."), { recursive: true });
     copyFileSync(copy, file);
-    chmodSync(file, 0o755);
+    chmodSync(file, file === secretPath ? 0o600 : 0o755);
   }
   for (const dir of freshDirs) if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
   rmSync(work, { recursive: true, force: true });
