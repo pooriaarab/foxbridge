@@ -187,7 +187,7 @@ async function runCall(callId, tool, args, signal) {
   const bad = checkArgs(t.parameters, rest);
   if (bad) throw refuse("bad-args", `The args do not fit ${tool}: ${bad}.`);
   const ctx = { signal, step: 1, goal: `outside agent: ${tool}` };
-  // prepare pins the exact control into the action that foxgate judges and the human approves.
+  // C12: prepare pins the exact control into the action that foxgate judges and the human approves.
   const prepared = t.prepare ? await later(() => t.prepare(rest, ctx)).catch((error) => {
     throw refuse("bad-args", `${error.message} Call snapshot first.`);
   }) : rest;
@@ -200,8 +200,13 @@ async function runCall(callId, tool, args, signal) {
   if (t.describe) detail = await later(() => t.describe(prepared, { ...ctx, domain: site })).catch((error) => {
     throw refuse("bad-args", `${error.message} Call snapshot first.`);
   });
-  const action = await passGate(callId, { tool: name, args: prepared, domain: site, scope: t.scope }, { tool, tabId, title: shared.title, detail }, signal);
+  const target = isObject(prepared.target) ? prepared.target : undefined;
+  const action = await passGate(callId, { tool: name, args: prepared, domain: site, scope: t.scope }, { tool, tabId, title: shared.title, detail, target }, signal);
   const out = await t.run(action.args, { ...ctx, domain: action.domain });
+  if (!out.ok && /^stale:|did not act: (stale|gone|navigated)/.test(out.summary)) {
+    log(`${tool} on tab ${tabId}: the page changed, nothing ran.`);
+    throw refuse("stale", `The page changed after the approval, so nothing ran. Call snapshot again, then ask again. (${out.summary})`);
+  }
   log(`${tool} on tab ${tabId}: ${out.ok ? "done" : "not done"}.`);
   return { ok: out.ok, summary: out.summary, ...(out.untrusted ? { untrusted: out.untrusted } : {}) };
 }
@@ -317,7 +322,7 @@ async function sidebarView() {
   return {
     boot: BOOT, on: state.on, ready: state.ready, agent: state.agent, error: state.error, settings: state.settings, log: state.log,
     tabs: all.filter((t) => hostOf(t.url)).map((t) => ({ tabId: t.id, title: t.title ?? "", host: hostOf(t.url), shared: state.shared.has(t.id) })),
-    pending: [...state.pending].map(([requestId, p]) => ({ requestId, tool: p.tool, tabId: p.tabId, title: p.title, detail: p.detail, text: p.text, expiresAt: p.expiresAt })),
+    pending: [...state.pending].map(([requestId, p]) => ({ requestId, tool: p.tool, tabId: p.tabId, title: p.title, detail: p.detail, target: p.target, text: p.text, expiresAt: p.expiresAt })),
   };
 }
 

@@ -83,6 +83,7 @@ The parts:
 | C9 | The agent asks for cookies or a password. | The extension has no `cookies` permission and no tool that reads cookies. foxpaw shows a password value as `•••`. | E2E (a filled password field) |
 | C10 | The bridge turns itself on after a Firefox restart. | The on state and the shared tabs live only in the event page memory. Turn off stops all sharing. After a restart the bridge is off. | E2E (the bridge starts off) |
 | C11 | A buggy or hostile host sends calls for one tab at the same time (H10 does not hold). | The extension runs the calls for a tab one at a time. It refuses a `snapshot` for a tab with `tab-busy` while an approval for that tab waits. A queued call that the agent cancelled does not run. | E2E (a host with no per-tab order and a raw socket client) |
+| C12 | The page changes the control, or the page is read again, after the human approves and before the action runs. The approved control and the control that runs differ. | The extension calls the foxloop tool's `prepare`, which pins the control (snapshot number, id, frame, node, guard, role, label, address) into the action that foxgate judges. The card shows the pinned control. `run` acts only on that control. When it changed, the agent gets `stale` ("the page changed, call snapshot again") and nothing runs. | E2E (the test replaces the field while its approval waits) |
 
 ## Page text and prompt injection
 
