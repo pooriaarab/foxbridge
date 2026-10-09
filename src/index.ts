@@ -6,3 +6,4 @@ export { DEFAULT_APPROVAL_SECONDS, DEFAULT_TIMEOUT_MS, MAX_APPROVAL_SECONDS, MES
 export type { AgentMessage, CallError, ExtensionToHost, HostToAgent, HostToExtension, ToolName, ToolReply } from "./protocol.js";
 export { defaultSocketPath } from "./socket.js";
 export { runHost, type HostOptions, type RunningHost } from "./host.js";
+export { connectBridge, type Bridge, type BridgeOptions } from "./client.js";
