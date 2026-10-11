@@ -1,6 +1,6 @@
 {
   "name": "foxbridge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Let outside agents such as Claude Code use fox primitives through MCP.",
   "type": "module",
   "license": "MIT",
