@@ -15,6 +15,46 @@ function el(tag, { dataset = {}, ...props } = {}, ...children) {
 /** The control that foxloop pinned for this action: only this control can run. */
 const targetText = (t) => `Only this control: ${t.role} "${t.label}" (id ${t.id}, snapshot ${t.generation})${t.submit ? ", sends its form" : ""} on ${t.url}`;
 
+// A letter avatar for the site. The hue comes from the name, so one site
+// keeps one color. style.setProperty is CSSOM, which the CSP allows.
+function siteIcon(site) {
+  const box = el("span", { className: "site-icon", textContent: (site[0] ?? "?").toUpperCase() });
+  let hue = 0;
+  for (const c of site) hue = (hue * 31 + c.charCodeAt(0)) % 360;
+  box.style.setProperty("--hue", String(hue));
+  box.setAttribute("aria-hidden", "true");
+  return box;
+}
+
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+};
+
+// Only a new card animates in; a re-render keeps the others still.
+const shown = new Set();
+
+function askCard(p, tabs) {
+  const site = tabs.find((t) => t.tabId === p.tabId)?.host || (p.target ? hostOf(p.target.url) : "") || "A new tab";
+  const li = el("li", { className: shown.has(p.requestId) ? "ask" : "ask new" });
+  shown.add(p.requestId);
+  li.append(
+    el("div", { className: "ask-head" }, siteIcon(site), el("span", { className: "site", textContent: site }),
+      el("span", { className: "left", dataset: { until: String(p.expiresAt) } })),
+    el("p", { className: "detail", textContent: p.detail }),
+    el("div", { className: "meta" }, el("strong", { textContent: p.tool }), p.tabId === null ? "" : ` on tab ${p.tabId}`),
+    p.target ? el("p", { className: "target", textContent: targetText(p.target) }) : "",
+    el("pre", { textContent: p.text }),
+    el("div", { className: "answers" },
+      el("button", { type: "button", className: "ghost", textContent: "Deny", dataset: { op: "deny", id: p.requestId } }),
+      el("button", { type: "button", className: "primary", textContent: "Approve", dataset: { op: "approve", id: p.requestId } })),
+  );
+  return li;
+}
+
 function statusOf(s) {
   if (s.agent) return ["agent", "Agent connected"];
   if (s.on && s.ready) return ["on", "On, waiting for an agent"];
@@ -32,16 +72,7 @@ function render(s) {
   $("error").hidden = !s.error;
   $("error").textContent = s.error;
 
-  $("pending").replaceChildren(...(s.pending.length ? s.pending.map((p) => el("li", { className: "ask" },
-    el("div", {}, el("strong", { textContent: p.tool }), p.tabId === null ? "" : ` on tab ${p.tabId}`),
-    el("p", { className: "detail", textContent: p.detail }),
-    p.target ? el("p", { className: "target", textContent: targetText(p.target) }) : "",
-    el("pre", { textContent: p.text }),
-    el("div", { className: "row" },
-      el("button", { type: "button", className: "primary", textContent: "Approve", dataset: { op: "approve", id: p.requestId } }),
-      el("button", { type: "button", textContent: "Deny", dataset: { op: "deny", id: p.requestId } }),
-      el("span", { className: "left", dataset: { until: String(p.expiresAt) } })),
-  )) : [el("li", { className: "empty", textContent: "Nothing waits." })]));
+  $("pending").replaceChildren(...(s.pending.length ? s.pending.map((p) => askCard(p, s.tabs)) : [el("li", { className: "empty", textContent: "Nothing waits." })]));
 
   $("tabs").replaceChildren(...(s.tabs.length ? s.tabs.map((t) => el("li", {},
     el("label", {},
