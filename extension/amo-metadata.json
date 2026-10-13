@@ -1,7 +1,7 @@
 {
   "default_locale": "en-US",
-  "slug": "foxbridge-mcp",
-  "name": { "en-US": "foxbridge — share tabs with your coding agent" },
+  "slug": "foxmate-bridge",
+  "name": { "en-US": "Foxmate Bridge — tabs for your coding agent" },
   "summary": {
     "en-US": "Let an outside AI agent, such as Claude Code or Codex, use only the tabs that you share, through MCP. The agent can read a shared tab. Each click or form entry waits for your approval in the sidebar."
   },
