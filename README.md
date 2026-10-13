@@ -37,7 +37,7 @@ Then do these steps one time:
    ```
 
 2. Add the extension to Firefox. Install from AMO:
-   [addons.mozilla.org/firefox/addon/foxbridge-mcp](https://addons.mozilla.org/firefox/addon/foxbridge-mcp/)
+   [addons.mozilla.org/firefox/addon/foxmate-bridge](https://addons.mozilla.org/firefox/addon/foxmate-bridge/)
    (pending AMO review; the link works after approval). You can also build
    it with `pnpm build:ext` and load `dist-ext/manifest.json` from
    `about:debugging`.
