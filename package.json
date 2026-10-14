@@ -1,7 +1,7 @@
 {
   "name": "foxbridge",
   "version": "0.1.4",
-  "description": "Let outside agents such as Claude Code use fox primitives through MCP.",
+  "description": "Connect MCP agents to shared Firefox tabs with a native messaging host, page snapshots, browser actions, and sidebar approvals.",
   "type": "module",
   "license": "MIT",
   "author": "Pooria Arab",
@@ -52,5 +52,19 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.3",
     "web-ext": "^10.7.0"
-  }
+  },
+  "keywords": [
+    "Firefox",
+    "MCP",
+    "native-messaging",
+    "browser-automation",
+    "Claude Code",
+    "TypeScript",
+    "foxpaw",
+    "foxloop",
+    "foxgate",
+    "approval",
+    "shared-tabs",
+    "stdio"
+  ]
 }
