@@ -1,6 +1,6 @@
 {
   "name": "foxbridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Connect MCP agents to shared Firefox tabs with a native messaging host, page snapshots, browser actions, and sidebar approvals.",
   "type": "module",
   "license": "MIT",
