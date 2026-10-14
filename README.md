@@ -1,59 +1,56 @@
 # foxbridge
 
-<p align="center">Let outside agents such as Claude Code use fox primitives through MCP.</p>
+[![npm version](https://img.shields.io/npm/v/foxbridge)](https://www.npmjs.com/package/foxbridge)
+[![downloads/month](https://img.shields.io/npm/dm/foxbridge)](https://www.npmjs.com/package/foxbridge)
+[![license](https://img.shields.io/npm/l/foxbridge)](https://www.npmjs.com/package/foxbridge)
 
-<p align="center">
-  <a href="https://github.com/pooriaarab/foxbridge/actions"><img src="https://github.com/pooriaarab/foxbridge/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License MIT"/></a>
-</p>
+[Package](https://www.npmjs.com/package/foxbridge) · [Setup](#connect-your-first-tab) · [MCP tools](#mcp-tools) · [API](#library)
 
-foxbridge connects an outside agent, for example Claude Code or Codex, to the
-Firefox you already use. The agent sees only the tabs that you share. It can
-read a shared tab. Each change waits until you approve it in the foxbridge
-sidebar. The agent never gets your cookies or your passwords.
-
-foxbridge has three parts in one npm package and one extension:
-
-- `foxbridge mcp`: an MCP server on stdio. Your agent starts it.
-- `foxbridge host`: a native messaging host. Firefox starts it when you turn
-  on the bridge.
-- The foxbridge extension: the sidebar, the shared tabs, and the approvals.
-  It runs [foxpaw](https://github.com/pooriaarab/foxpaw) through
-  [foxloop](https://github.com/pooriaarab/foxloop)'s browser tools, and asks
-  [foxgate](https://github.com/pooriaarab/foxgate) before each action.
+foxbridge is an open-source Firefox bridge for developers who connect outside agents to tabs they explicitly share.
+Its Model Context Protocol (MCP) server exposes page reading and browser actions.
+A Firefox sidebar asks for approval before changes.
 
 ## Install
 
-```bash
-npm i -g foxbridge
+```sh
+npm install -g foxbridge
 ```
 
-Then do these steps one time:
+Requires Node.js 24 or later and Firefox 153 or later. The npm package has two direct runtime dependencies and includes TypeScript declarations.
+The Firefox extension bundles foxpaw, foxloop browser tools, and foxgate separately.
 
-1. Write the native messaging host manifest for Firefox:
+## Connect your first tab
 
-   ```bash
-   foxbridge install
-   ```
+Install the native messaging host for your user:
 
-2. Add the extension to Firefox. Install from AMO:
-   [addons.mozilla.org/firefox/addon/foxmate-bridge](https://addons.mozilla.org/firefox/addon/foxmate-bridge/)
-   (pending AMO review; the link works after approval). You can also build
-   it with `pnpm build:ext` and load `dist-ext/manifest.json` from
-   `about:debugging`.
-3. Register the MCP server with your agent. For Claude Code:
+```sh
+foxbridge install
+foxbridge status
+```
 
-   ```bash
-   claude mcp add foxbridge -- foxbridge mcp
-   ```
+Success prints `OK:` followed by the manifest path.
+Install globally first; an npx cache can disappear and break the launcher.
 
-4. In Firefox, click the foxbridge button to open the sidebar. Click
-   **Turn on**, and tick **Share** next to a tab.
+Build the companion extension from a source checkout:
 
-Run `foxbridge status` when the sidebar says that Firefox could not start the
-host.
+```sh
+gh repo clone pooriaarab/foxbridge
+cd foxbridge
+pnpm install
+pnpm build:ext
+```
 
-## Example
+Open Firefox's `about:debugging`, select **This Firefox**, and load `dist-ext/manifest.json` as a temporary add-on.
+Register the installed MCP server with your client. For Claude Code:
+
+```sh
+claude mcp add foxbridge -- foxbridge mcp
+```
+
+Open the foxbridge sidebar, turn on the bridge, and share one test tab.
+Ask your client to call `list_tabs`. Success returns that tab's ID, site, and title.
+Shared page text is visible to the client. Use test data for the first connection.
+No environment variables or `.env` loader are required for default setup.
 
 The MCP tools are the main way to use foxbridge. The library gives the same
 calls to your own Node code. This runs in Node 24 or later when the bridge is
@@ -71,106 +68,70 @@ bridge.close();
 When the bridge is off, `connectBridge` throws a `FoxbridgeError` with the
 code `bridge-off` and a message that says how to turn it on.
 
-## Use cases
-
-| Who | What they build | How foxbridge helps |
-|---|---|---|
-| A developer who uses Claude Code or Codex | "Open my staging admin page and check the new setting", in the browser where they are already logged in | The agent uses the real session in a shared tab. It never sees the cookies. Each click waits for an approval in the sidebar. |
-| A QA engineer who works in a terminal | A terminal agent that fills a form on a test site and reads the result | `run_task` fills and sends the form with foxpaw and returns foxpaw's check. `snapshot` shows the page again. |
-| A researcher | An agent that reads pages from a paywalled library that the researcher is logged in to | Shared tabs give the agent the page text. The text arrives marked as untrusted data, so the agent can keep it apart from instructions. |
-| An accessibility tool author | A voice or switch tool that asks an outside model "what can I do on this page?" | `snapshot` gives each control with its role and its accessible name. `act` types or selects for the user after an approval. |
-| A person who writes small scripts | A Node script that lists the shared tabs, or opens a set of pages for a morning check | `connectBridge` gives the same calls as the MCP tools, with the same approvals. |
-| An agent framework author | A tool for an agent that must act in a browser that a human controls | The human stays in control: an on switch, sharing per tab, an approval for each change, and a kill switch. |
-
 ## How it works
 
-```mermaid
-flowchart LR
-  agent[Outside agent<br/>Claude Code, Codex] -- MCP over stdio --> mcp[foxbridge mcp]
-  mcp -- local socket --> host[foxbridge host]
-  host -- native messaging --> ext[foxbridge extension]
-  ext --> gate[foxgate]
-  gate --> paw[foxpaw<br/>via foxloop tools]
-  paw --> page[Shared tab]
-  ext <--> sidebar[Sidebar:<br/>on switch, sharing,<br/>approvals, log]
+```text
+Agent -> MCP stdio server -> local socket -> native messaging host
+                                              |
+                                      Firefox extension
+                                              |
+                              shared tab + foxgate approval
+                                              |
+                                   foxloop tools -> foxpaw
 ```
 
-1. You turn on the bridge in the sidebar. The extension calls
-   `runtime.connectNative("foxbridge")`, and Firefox starts `foxbridge host`.
-2. The host listens on a local socket. The socket is in `~/.foxbridge`
-   (mode 0700), or on a named pipe on Windows.
-3. Your agent starts `foxbridge mcp`. On the first tool call, the MCP server
-   connects to the socket. The sidebar shows **Agent connected**.
-4. The extension refuses a call for a tab that you did not share. It checks
-   the arguments again with the foxloop schema.
-5. It asks foxgate. Sharing a tab adds grants for the site of that tab:
-   `snapshot` needs no approval, and `act`, `click` and `run_task` always
-   need one. `open_url` always needs one.
-6. Before the gate, foxloop's `prepare` pins the exact control: the snapshot
-   number, the control id, its frame, node, guard, role and label. For an
-   approval, the sidebar shows the action in plain words, the pinned
-   control, and the exact JSON. Approve gives a foxgate token for that one action. Deny, the
-   approval time, or the kill switch runs nothing.
-7. The tool runs through foxpaw in the page, on the pinned control only.
-   When the page changed after the approval, nothing runs and the agent
-   gets `stale`: call `snapshot` again. Page text goes back to the agent
-   in its own block, inside tags with a random nonce.
+Sharing permits reads. Changes need sidebar approval; one `run_task` approval covers the whole form run.
+The extension pins the approved control and refuses stale targets.
+Turn off or **Stop now** closes the bridge and clears sharing.
 
-```mermaid
-sequenceDiagram
-  participant A as Agent
-  participant M as foxbridge mcp
-  participant H as foxbridge host
-  participant E as Extension
-  participant U as You (sidebar)
-  A->>M: act(tabId, controlId, "type", "sam@example.com")
-  M->>H: frame {type: call, id, tool, args}
-  H->>E: frame (at most 1 MB)
-  E->>E: shared tab? args fit? foxgate check: ask
-  E->>U: Approval card: type "sam@example.com" into the textbox "Email"
-  U->>E: Approve
-  E->>E: foxgate token, redeem, foxpaw act
-  E->>H: frame {type: reply, id, ok, result}
-  H->>M: reply
-  M->>A: summary + untrusted page text
-```
+## Why it exists
 
-### Message protocol
+Terminal agents need an explicit path into a user's existing Firefox session.
+Playwright MCP and Chrome DevTools MCP provide other browser-control paths.
+foxbridge combines tab sharing, native messaging, and sidebar approvals for Firefox.
 
-Every link uses Firefox's native messaging frame: a 32-bit length in native
-byte order, then that many bytes of UTF-8 JSON.
+## Compare
 
-| Link | Limit | Messages |
-|---|---|---|
-| MCP server to host (socket) | 8 MB | `call {id, tool, args}`, `cancel {id}` |
-| Host to MCP server | 8 MB | `hello`, `refused {code}`, `reply {id, ok, result \| error}` |
-| Host to extension (stdout) | 1 MB, set by Firefox | `ready`, `agent {connected}`, `call`, `cancel`, `host-error` |
-| Extension to host (stdin) | 8 MB, set by foxbridge | `reply {id, ok, result \| error}` |
+Scope checked on 2026-10-14 against the linked upstream projects.
 
-- The MCP server first sends a random challenge. The host answers in
-  `hello` with an HMAC-SHA256 of it, keyed with the secret that `install`
-  wrote to `~/.foxbridge/secret` (mode 0600). The MCP server refuses a host
-  that cannot prove the secret (`bad-host`), so a program that took the
-  socket path first sees no call and cannot forge an answer. On Windows,
-  libuv makes the first pipe instance with `FILE_FLAG_FIRST_PIPE_INSTANCE`,
-  so the real host fails with `socket-busy` instead of sharing a name that
-  another program holds.
-- The MCP server gives each call a random id. The host passes only answers
-  for ids that wait, one agent at a time.
-- The host sends one call for a tab at a time, in order. A `snapshot` sent
-  while an `act` waits for its approval answers after the approval. The
-  extension keeps the same order itself, and refuses a `snapshot` with
-  `tab-busy` while an approval for that tab waits.
-- A call over 1 MB fails with `too-large` before Firefox sees it.
-- A call waits at most 180 s (`FOXBRIDGE_TIMEOUT_MS`). Then the MCP server
-  sends `cancel`, and the extension drops the approval.
-- An approval waits 120 s by default. You can set 2 to 150 s in the sidebar.
-- When the host stops, every waiting call fails at once with `host-gone`.
+| Scope | foxbridge | [Playwright MCP](https://github.com/microsoft/playwright-mcp) | [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) |
+| --- | --- | --- | --- |
+| Browser path | Firefox extension and native host | Playwright; Chrome extension path available | Chrome DevTools |
+| Agent transport | MCP | MCP | MCP |
+| Local setup | Global package, native manifest, companion extension | Package and browser configuration | Package and Chrome configuration |
 
-Every failure mode has a test or an E2E check: see
-[docs/failure-modes.md](docs/failure-modes.md).
+## Coverage
 
-## API
+Source inventory: six MCP tools, five CLI commands, and three bundled fox integrations.
+No live client compatibility campaign was performed for this rewrite.
+
+| Integration | Status | Role |
+| --- | --- | --- |
+| Firefox native messaging | Implemented | Host and extension transport |
+| MCP stdio clients | Implemented | Tool interface; client registration required |
+| Claude Code | Setup example | Starts `foxbridge mcp`; no special client adapter |
+| foxpaw | Bundled implementation | Page snapshots and actions |
+| foxloop | Bundled implementation | Browser tool schemas and target preparation |
+| foxgate | Bundled implementation | Grants and approvals |
+| Windows native host | Unverified on Windows | Registry, launcher, permissions, and named-pipe code |
+
+## Common use cases
+
+1. Claude Code users read a shared Firefox test tab through MCP.
+2. QA engineers inspect controls, approve a form action, and take another snapshot.
+3. Node.js developers script shared-tab queries with `connectBridge`.
+4. Accessibility tool authors use Firefox control roles and labels to present actions.
+5. Agent framework authors add a human approval step through foxgate and the sidebar.
+
+## Features
+
+- Per-tab sharing limits which pages the bridge exposes.
+- Sidebar approvals gate changes and new tabs.
+- Native-host proof checks the local installation secret before calls.
+- Page text returns in a separate untrusted content block.
+- Structured refusal codes explain denied, stale, or timed-out calls.
+
+## Runtime surfaces
 
 ### MCP tools
 
@@ -232,25 +193,42 @@ pnpm install
 pnpm e2e    # Firefox, the real host manifest, a real MCP client
 ```
 
-`pnpm e2e` installs the host manifest for your user and puts back what was
-there after the run. Our run on 2026-10-09 (Firefox 157.0.1, macOS, headless)
-passed 36 checks. With a 2 s idle timeout, the event page unloaded when no
-port was open, and it stayed loaded for 8 s while the native port was open.
+`pnpm e2e` temporarily installs the per-user host manifest and restores it after the run.
+Do not run two Firefox E2E sessions together.
 
-## Firefox APIs used
+### Message protocol
 
-| API | MDN | Why |
+Every link uses Firefox's native messaging frame: a 32-bit length in native
+byte order, then that many bytes of UTF-8 JSON.
+
+| Link | Limit | Messages |
 |---|---|---|
-| `runtime.connectNative`, `runtime.Port` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/connectNative) | Starts the host and talks to it. |
-| `nativeMessaging` permission and host manifest | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging) | Lets only this extension start the host. |
-| `tabs.query`, `tabs.get`, `tabs.create`, `tabs.onUpdated`, `tabs.onRemoved` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/tabs) | Lists tabs to share, opens `open_url` tabs, and stops sharing when a tab closes or moves to another site. |
-| `scripting.executeScript` (through foxpaw) | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/scripting/executeScript) | Reads and acts on a shared page with bundled functions. |
-| `sidebarAction`, `action.onClicked`, `action.setBadgeText` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/sidebarAction) | The sidebar, and the "on" or "AI" badge on the toolbar button. |
-| `storage.local` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local) | Keeps the approval time. |
-| `runtime.sendMessage`, `runtime.onMessage` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/sendMessage) | Links the sidebar and the background. |
-| `data_collection_permissions` | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/browser_specific_settings) | Declares that page text and tab addresses leave the browser (`websiteContent`, `browsingActivity`). |
+| MCP server to host (socket) | 8 MB | `call {id, tool, args}`, `cancel {id}` |
+| Host to MCP server | 8 MB | `hello`, `refused {code}`, `reply {id, ok, result \| error}` |
+| Host to extension (stdout) | 1 MB, set by Firefox | `ready`, `agent {connected}`, `call`, `cancel`, `host-error` |
+| Extension to host (stdin) | 8 MB, set by foxbridge | `reply {id, ok, result \| error}` |
 
-## Limits
+- The MCP server first sends a random challenge. The host answers in
+  `hello` with an HMAC-SHA256 of it, keyed with the secret that `install`
+  wrote to `~/.foxbridge/secret` (mode 0600). The MCP server refuses a host
+  that cannot prove the secret (`bad-host`), so a program that took the
+  socket path first sees no call and cannot forge an answer. On Windows,
+  libuv makes the first pipe instance with `FILE_FLAG_FIRST_PIPE_INSTANCE`,
+  so the real host fails with `socket-busy` instead of sharing a name that
+  another program holds.
+- The MCP server gives each call a random id. The host passes only answers
+  for ids that wait, one agent at a time.
+- The host sends one call for a tab at a time, in order. A `snapshot` sent
+  while an `act` waits for its approval answers after the approval. The
+  extension keeps the same order itself, and refuses a `snapshot` with
+  `tab-busy` while an approval for that tab waits.
+- A call over 1 MB fails with `too-large` before Firefox sees it.
+- A call waits at most 180 s (`FOXBRIDGE_TIMEOUT_MS`). Then the MCP server
+  sends `cancel`, and the extension drops the approval.
+- An approval waits 120 s by default. You can set 2 to 150 s in the sidebar.
+- When the host stops, every waiting call fails at once with `host-gone`.
+
+## Delivery/behavior limits
 
 - foxbridge marks page text as untrusted data. It cannot stop an agent that
   obeys the page anyway. Every change still needs a shared tab and your
@@ -270,36 +248,66 @@ port was open, and it stayed loaded for 8 s while the native port was open.
   `example.com` to `www.example.com` also stops it.
 - The state lives in memory. After a Firefox restart, the bridge is off and no
   tab is shared. Turn off also stops all sharing.
-- We saw Firefox 157 on macOS fail 2 of 12 process starts with "An unexpected
-  error occurred". The extension tries a start 3 times.
-- The 8 s idle test is a measurement on one Firefox version. Firefox does not
-  document that an open native port keeps an event page loaded.
-- foxpaw sends in-page events with `isTrusted: false`. Some sites ignore them.
-- Windows support (the registry key, the `.cmd` launcher, `icacls` on the
-  secret and the named pipe) is written but not tested on Windows.
-- `npx foxbridge install` points the manifest into an npx cache that npm can
-  delete. Install the package globally first.
+- foxpaw sends synthetic in-page events. Some sites ignore them.
+- Windows host support exists in code but lacks a real Windows verification here.
+- Calls wait 180 seconds by default; approvals wait 120 seconds by default.
+- Set `FOXBRIDGE_TIMEOUT_MS` for CLI call timeouts and `FOXBRIDGE_SOCKET` for a custom socket path.
+- Export environment variables before starting the server. foxbridge does not load `.env` files.
 
-## Part of the fox primitives
+## Integration guides
 
-```mermaid
-flowchart LR
-  foxkit[foxkit] -- template --> foxbridge[foxbridge]
-  foxgate[foxgate] --> foxbridge
-  foxpaw[foxpaw] --> foxbridge
-  foxloop[foxloop] --> foxbridge
-  foxbridge -.-> foxmate[foxmate]
-  click foxkit "https://github.com/pooriaarab/foxkit"
-  click foxgate "https://github.com/pooriaarab/foxgate"
-  click foxpaw "https://github.com/pooriaarab/foxpaw"
-  click foxloop "https://github.com/pooriaarab/foxloop"
-  click foxbridge "https://github.com/pooriaarab/foxbridge"
-  click foxmate "https://github.com/pooriaarab/foxmate"
-```
+- [Firefox and Claude Code setup](#connect-your-first-tab): install the host, build the extension, and share a test tab.
+- [Node.js bridge API](#library): connect, call tools, and close the connection.
+- [Native transport protocol](#message-protocol): inspect frames, limits, and host authentication.
 
-The extension bundles foxgate, foxpaw and foxloop's browser tools. The npm
-package (the CLI, the host and the MCP server) does not need them at run time.
+## Status
+
+Version 0.1.4 is a 0.x release. Interfaces can change.
+Use the issue channel listed on the [npm package](https://www.npmjs.com/package/foxbridge) for support.
+Public customer case studies are not published here.
+
+## FAQ
+
+### What does foxbridge connect?
+
+foxbridge connects MCP clients to explicitly shared Firefox tabs.
+Its native host links the local server and companion extension.
+
+### Which integrations are verified?
+
+foxbridge implements Firefox native messaging, MCP tools, and three bundled fox libraries.
+This rewrite verifies the local gate; Windows and live client compatibility remain separate checks.
+
+### Does foxbridge provide a managed browser?
+
+foxbridge uses Firefox on your machine.
+You install its host and extension and choose which tabs to share.
+
+### How is foxbridge different from Playwright MCP?
+
+foxbridge uses a Firefox native messaging host and approval sidebar.
+[Playwright MCP](https://github.com/microsoft/playwright-mcp) exposes browser automation through Playwright and offers a Chrome extension path.
+
+### How is foxbridge different from Chrome DevTools MCP?
+
+foxbridge connects to shared Firefox tabs.
+[Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) exposes Chrome DevTools to agents.
+
+### Does every read need approval?
+
+foxbridge permits snapshots of shared tabs without another approval.
+Share only pages the agent may read.
+
+### Can a form submit after one approval?
+
+foxbridge's `run_task` approval covers the whole foxpaw run.
+That run can fill and submit a form.
+
+### Does untrusted wrapping stop prompt injection?
+
+foxbridge marks page content as untrusted text for the client.
+An agent can still follow malicious page instructions; wrapping is not a security guarantee.
 
 ## License
 
-[MIT](LICENSE)
+MIT.
