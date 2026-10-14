@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "foxbridge — share tabs with your coding agent",
-  "version": "0.1.3",
+  "name": "Foxmate Bridge — tabs for your coding agent",
+  "version": "0.1.4",
   "description": "Let outside agents such as Claude Code use the tabs you share, through MCP.",
   "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
   "browser_specific_settings": {
