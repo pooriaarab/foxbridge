@@ -91,6 +91,13 @@ jobs:
           fi
           # The privacy policy and the listing icon have their own AMO endpoints.
           node scripts/amo-listing.mjs after-submit
+      - name: Build the extension package
+        run: |
+          pnpm exec web-ext build -s dist-ext -a web-ext-artifacts --overwrite-dest
+          # web-ext build emits ZIP archives; Firefox packages use the XPI extension.
+          for package in web-ext-artifacts/*.zip; do
+            mv "$package" "${package%.zip}.xpi"
+          done
       - name: Tag and create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -101,4 +108,4 @@ jobs:
           NOTES="Submitted for AMO review as a listed add-on. After approval, install it from https://addons.mozilla.org/firefox/addon/${SLUG}/ (review status for the authors: ${REVIEW_URL:-the AMO Developer Hub})."
           # gh creates the tag v<version> on this commit when it does not exist.
           # --notes goes before the generated notes.
-          gh release create "v${VERSION}" --target "$GITHUB_SHA" --title "v${VERSION}" --generate-notes --notes "$NOTES"
+          gh release create "v${VERSION}" web-ext-artifacts/*.xpi --target "$GITHUB_SHA" --title "v${VERSION}" --generate-notes --notes "$NOTES"
