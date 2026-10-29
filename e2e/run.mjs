@@ -57,6 +57,8 @@ let lastState = async () => undefined;
 const clients = [];
 try {
   cli("install", "--extension-id", "wrong@example.com");
+  // Firefox 159 replaces -remote-allow-system-access with this environment flag.
+  process.env.MOZ_REMOTE_ALLOW_SYSTEM_ACCESS = "1";
   fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed"), prefs: { "extensions.background.idle.timeout": 2000 } });
   record.firefox = await fox.browser.version();
   let sidebar = await fox.openExtensionPage("sidebar.html");
